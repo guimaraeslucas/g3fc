@@ -30,9 +30,9 @@ Stop settling for slow, insecure, and outdated archive formats. **G3FC (G3 File 
 
 Engineered from the ground up to outperform legacy formats in every key area.
 
-* [cite_start]🚀 **Extreme Speed & Efficiency**: Powered by modern **Zstandard (Zstd)** compression[cite: 1, 4], G3FC crushes legacy formats with lightning-fast compression and decompression speeds, saving you valuable time and resources. The Python implementation is particularly fast due to its use of native library bindings.
-* 🛡️ **Bulletproof Security**: Your data deserves the best protection. [cite_start]G3FC uses military-grade **AES-256-GCM authenticated encryption** [cite: 1] to ensure your archives are both confidential and tamper-proof.
-* [cite_start]📦 **Versatile & Resilient Storage**: Perfect for both **long-term cold storage** and **short-term active use**[cite: 5]. [cite_start]Built-in **Forward Error Correction (FEC)** [cite: 1] guards against bit rot and data corruption over time, while the smart footer allows for instant file indexing without reading the entire archive—a massive advantage over TAR for large datasets.
+* 🚀 **Extreme Speed & Efficiency**: Powered by modern **Zstandard (Zstd)** compression, G3FC crushes legacy formats with lightning-fast compression and decompression speeds, saving you valuable time and resources. The Python implementation is particularly fast due to its use of native library bindings.
+* 🛡️ **Bulletproof Security**: Your data deserves the best protection. G3FC uses military-grade **AES-256-GCM authenticated encryption**  to ensure your archives are both confidential and tamper-proof.
+* 📦 **Versatile & Resilient Storage**: Perfect for both **long-term cold storage** and **short-term active use**. Built-in **Forward Error Correction (FEC)** guards against bit rot and data corruption over time, while the smart footer allows for instant file indexing without reading the entire archive—a massive advantage over TAR for large datasets.
 * 💻 **Truly Cross-Platform**: G3FC is fully open-source and runs anywhere. Use our native implementations on **Mac, Windows, and Linux**. You're never locked into a single platform or vendor.
 
 ## 📊 G3FC vs. Legacy Formats
@@ -72,7 +72,7 @@ G3FC with Zstd isn't just more feature-rich; it's faster and more efficient.
 
 Download the latest pre-compiled binaries for your operating system from the releases page.
 
-➡️ **[Download Latest Release](https://github.com/guimaraeslucas/g3fc/releases/tag/1)**
+➡️ **[Download Latest Release](https://github.com/guimaraeslucas/g3fc/releases)**
 
 ## 🛠️ Implementations
 
