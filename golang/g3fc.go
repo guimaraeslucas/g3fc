@@ -1,3 +1,41 @@
+//
+// G3FC Archiver Tool - Go Version
+//
+// @author  Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>
+// @license GNU General Public License v2.0
+// @version 1.0.4
+//
+// Copyright 2025, Lucas Guimarães - G3Pix Ltda <https://g3pix.com.br>
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+// SECURITY WARNING: This is a basic reader/writer implementation.
+// It is the developer's responsibility to implement security checks.
+//
+// 1. Path Traversal: A maliciously crafted archive could contain paths intended
+//    to overwrite sensitive system files (e.g., a path traversal attack using ../../..).
+//    Implementations MUST rigorously validate and sanitize all path information from the
+//    file index before writing any data to the local filesystem. File paths MUST be
+//    treated as relative to the designated extraction directory, and any attempts to
+//    write outside of this directory must be prevented.
+//
+// 2. Decompression Bomb: Implementations that parse this format SHOULD mitigate
+//    the risk of decompression bombs by first checking the `uncompressed_size` field
+//    in the file's metadata index and enforcing reasonable limits on resource
+//    allocation before attempting decompression.
+
 package main
 
 import (
