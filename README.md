@@ -88,9 +88,10 @@ The G3FC format is built on an open, detailed specification to ensure cross-plat
 
 | Format | Link                                          |
 | :----- | :-------------------------------------------- |
-| PDF    | [g3pix.com.br/g3fc/rfc.pdf](https://g3pix.com.br/g3fc/rfc.pdf) |
-| XML    | [g3pix.com.br/g3fc/rfc.xml](https://g3pix.com.br/g3fc/rfc.xml) |
-| TXT    | [g3pix.com.br/g3fc/rfc.txt](https://g3pix.com.br/g3fc/rfc.txt) |
+| PDF    | [https://g3pix.com.br/g3fc/g3fc_file_format_specification.pdf](https://g3pix.com.br/g3fc/g3fc_file_format_specification.pdf) |
+| XML    | [https://g3pix.com.br/g3fc/g3fc_file_format_specification.xml](https://g3pix.com.br/g3fc/g3fc_file_format_specification.xml) |
+| TXT    | [https://g3pix.com.br/g3fc/g3fc_file_format_specification.txt](https://g3pix.com.br/g3fc/g3fc_file_format_specification.txt) |
+| HTML   | [https://g3pix.com.br/g3fc/g3fc_file_format_specification.html](https://g3pix.com.br/g3fc/g3fc_file_format_specification.html) |
 
 ## 📜 License
 
@@ -102,6 +103,5 @@ This project is maintained by **G3Pix**.
 
 * **Author**: Lucas Guimarães
 * **Website**: [g3pix.com.br/g3fc](https://g3pix.com.br/g3fc/)
-* **Inquiries**: g3fc-inquire@g3pix.com.br
 
 ---
