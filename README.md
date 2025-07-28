@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://g3pix.com.br/g3fc/g3fc.jpeg" alt="G3FC Logo" width="100"/>
+  <img src="https://g3pix.com.br/g3fc/g3fc.jpeg" alt="G3FC Logo" width="275"/>
 </p>
 
 <h1 align="center">G3FC Archiver Tool</h1>
@@ -98,7 +98,7 @@ The G3FC format is built on an open, detailed specification to ensure cross-plat
 This project is licensed under the **GNU General Public License v2.0**. Please see the [LICENSE](https://github.com/guimaraeslucas/g3fc/blob/main/LICENSE) file for details.
 
 ## 📞 Contact
-
+<img src="https://g3pix.com.br/favicon.svg" alt="G3pix Logo" width="48"/>
 This project is maintained by **G3Pix**.
 
 * **Author**: Lucas Guimarães
