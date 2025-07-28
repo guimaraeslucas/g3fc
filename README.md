@@ -78,9 +78,9 @@ Download the latest pre-compiled binaries for your operating system from the rel
 
 G3FC is designed for broad compatibility. Explore our official open-source libraries to integrate G3FC into your own projects.
 
-* **[C# / .NET](https://github.com/guimaraeslucas/g3fc/tree/main/csharp)**: A fully-featured .NET library for integration into your C# applications.
-* **[Go (Golang)](https://github.com/guimaraeslucas/g3fc/tree/main/golang)**: A high-performance Go library and command-line tool for maximum speed.
-* **[Python](https://github.com/guimaraeslucas/g3fc/tree/main/python)**: A flexible Python library using native bindings for incredible speed, perfect for scripting and data science.
+* **[C# / .NET](https://github.com/guimaraeslucas/g3fc/tree/main/csharp)**: A fully-featured .NET command line interface for integration into your C# applications.
+* **[Go (Golang)](https://github.com/guimaraeslucas/g3fc/tree/main/golang)**: A high-performance Go command-line tool for maximum speed.
+* **[Python](https://github.com/guimaraeslucas/g3fc/tree/main/python)**: A flexible Python command line interface using native bindings for incredible speed, perfect for scripting and data science.
 
 ## 📄 Technical Specification
 
