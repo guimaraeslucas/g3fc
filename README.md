@@ -41,12 +41,12 @@ See how G3FC stacks up against the archives you're used to.
 
 | Feature                   | G3FC                     | ZIP                             | TAR (tar.gz)                      |
 | ------------------------- | ------------------------ | ------------------------------- | --------------------------------- |
-| **Compression** | [cite_start]✅ **Modern (Zstd)** [cite: 1]      | ⚠️ Legacy (Deflate)              | ⚠️ Varies (Gzip)                   |
-| **Security** | [cite_start]✅ **AES-256-GCM** [cite: 1]        | ⚠️ AES-256 (often weaker legacy) | ❌ None (requires external tools)  |
-| **Data Resilience (FEC)** | [cite_start]✅ **Built-in** [cite: 1]             | ❌ None                         | ❌ None                           |
-| **Archive Splitting** | [cite_start]✅ **Built-in** [cite: 4]             | ⚠️ Basic (Zipx)                 | ❌ Manual (via `split` command)     |
-| **Fast Indexing** | [cite_start]✅ **Yes (Footer)** [cite: 1]         | ✅ Yes (Central Directory)      | ❌ No (Sequential Read)           |
-| **Ideal Storage Use** | [cite_start]✅ **Long & Short-Term** [cite: 5]  | ⚠️ Short-Term                   | ⚠️ Varies                         |
+| **Compression** | ✅ **Modern (Zstd)**       | ⚠️ Legacy (Deflate)              | ⚠️ Varies (Gzip)                   |
+| **Security** | ✅ **AES-256-GCM**         | ⚠️ AES-256 (often weaker legacy) | ❌ None (requires external tools)  |
+| **Data Resilience (FEC)** | ✅ **Built-in**             | ❌ None                         | ❌ None                           |
+| **Archive Splitting** | ✅ **Built-in**              | ⚠️ Basic (Zipx)                 | ❌ Manual (via `split` command)     |
+| **Fast Indexing** | ✅ **Yes (Footer)**          | ✅ Yes (Central Directory)      | ❌ No (Sequential Read)           |
+| **Ideal Storage Use** | ✅ **Long & Short-Term**   | ⚠️ Short-Term                   | ⚠️ Varies                         |
 
 ## ⚡ Performance Benchmarks
 
@@ -66,7 +66,7 @@ G3FC with Zstd isn't just more feature-rich; it's faster and more efficient.
 | Tool / Algorithm  | Compression (Relative) | Decompression (Relative) |
 | ----------------- | ---------------------- | ------------------------ |
 | 7-Zip (LZMA2)     | 100%                   | 85%                      |
-| **G3FC (Zstd)** | **~70%** | **~40%** |
+| **Zstd (G3FC)** | **~70%** | **~40%** |
 
 ## 🚀 Getting Started
 
