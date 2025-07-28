@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://g3pix.com.br/favicon.svg" alt="G3Pix Logo" width="100"/>
+  <img src="https://g3pix.com.br/g3fc/g3fc.jpeg" alt="G3FC Logo" width="100"/>
 </p>
 
 <h1 align="center">G3FC Archiver Tool</h1>
