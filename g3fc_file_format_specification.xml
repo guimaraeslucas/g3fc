@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-model href="rfc7991bis.rnc"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  category="info"
+  docName="g3fc-spec-00"
+  ipr="trust200902"
+  obsoletes=""
+  updates=""
+  submissionType="independent"
+  xml:lang="en"
+  version="3">
+
+  <front>
+    <title abbrev="G3FC File Format">G3FC (G3 File Container) File Format Specification</title>
+    <seriesInfo name="independent" value="g3fc-spec-01"/>
+    <author fullname="Lucas Guimaraes" initials="L." surname="Guimaraes">
+      <organization>G3Pix</organization>
+      <address>
+        <postal>
+          <street>Rua Santa Clara, 1049, Centro</street>
+          <city>Braganca Paulista</city>
+          <region>Sao Paulo</region>
+          <code>12900-190</code>
+          <country>Brazil</country>
+        </postal>
+        <email>g3fc@g3pix.com.br</email>
+        <uri>https://g3pix.com.br/g3fc/</uri>
+      </address>
+    </author>
+    <date year="2025" month="July" day="27"/>
+    <area>General</area>
+    <workgroup>Independent Submission</workgroup>
+    <keyword>archive</keyword>
+    <keyword>container</keyword>
+    <keyword>g3fc</keyword>
+    <keyword>binary format</keyword>
+    <keyword>CBOR</keyword>
+    <keyword>Zstandard</keyword>
+
+    <abstract>
+      <t>
+        This document provides the complete technical specification for the G3FC (G3 File Container) binary format, version 1.0. G3FC is designed to store multiple files and directories in a single, robust container, which can optionally be split into multiple data blocks. The format includes features for data integrity via checksums, security through authenticated encryption, and resilience via forward error correction (FEC). This specification details the file structure, data types, field layouts, and the algorithms required to implement compatible software for reading and writing G3FC archives.
+      </t>
+    </abstract>
+    
+    <note title="License">
+        <t>
+            The reference implementations of the G3FC Archiver Tool are licensed under the GNU General Public License v2.0. This specification document may be freely distributed and used for implementation purposes.
+        </t>
+    </note>
+  </front>
+
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t>
+        The G3FC (G3 File Container) format provides a structured method for archiving multiple files and directories into a single container or a set of segmented files. It was designed with a focus on robustness, data integrity, security, and failure recovery. The format defines a clear layout with a header, a file index, data blocks, and a footer, allowing for efficient access and manipulation of the contained data.
+      </t>
+      <t>
+        This specification is intended for developers who need to implement G3FC-compatible tools for creating, reading, or modifying archives.
+      </t>
+      <section anchor="requirements">
+        <name>Requirements Language</name>
+        <t>The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14 <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only when, they appear in all capitals, as shown here.</t>
+      </section>
+      <section anchor="concepts">
+        <name>General Concepts</name>
+        <dl newline="true">
+            <dt>Byte Order (Endianness):</dt>
+            <dd>All multi-byte integer data types (e.g., uint16_t, int64_t) SHALL be stored in Little Endian byte order.</dd>
+            <dt>Text Encoding:</dt>
+            <dd>All textual data, including filenames and paths, SHALL be encoded using UTF-8. Fixed-size text fields SHALL be padded with null bytes (0x00) if the content is smaller than the field size.</dd>
+            <dt>Timestamps:</dt>
+            <dd>All timestamps SHALL be stored as a 64-bit signed integer (int64_t), representing the number of 100-nanosecond intervals since 00:00:00 UTC on January 1, 0001, in the Gregorian calendar. This is compatible with .NET Ticks.</dd>
+        </dl>
+      </section>
+    </section>
+
+    <section anchor="structure">
+        <name>Overall File Structure</name>
+        <t>A G3FC archive consists of a main index file (with a .g3fc extension) and zero or more data block files (with .g3fc&lt;n&gt; extensions). A non-split archive contains all components within the single .g3fc file.</t>
+        <t>The logical structure of a non-split archive is as follows:</t>
+        <ol spacing="normal">
+            <li><strong>Main Header:</strong> A fixed-size block containing essential metadata about the container.</li>
+            <li><strong>File Index:</strong> A catalog of all files and directories stored in the archive.</li>
+            <li><strong>File Data Block:</strong> The actual content of the archived files, concatenated.</li>
+            <li><strong>Data FEC Block (Optional):</strong> Parity data for the File Data Block section.</li>
+            <li><strong>Metadata FEC Block:</strong> Parity data protecting the Main Header and the uncompressed File Index.</li>
+            <li><strong>Footer:</strong> A fixed-size block at the end of the file for quick access to key structures.</li>
+        </ol>
+        <t>In a split archive, the .g3fc file contains the Header, File Index, Metadata FEC Block, and Footer. The File Data is stored in separate data block files (e.g., archive.g3fc0, archive.g3fc1).</t>
+    </section>
+    
+    <section anchor="header">
+        <name>Main Header</name>
+        <t>The Main Header is a fixed-size block of 331 bytes located at the beginning of the .g3fc file. It MUST NOT be compressed or encrypted. The fields are aligned sequentially with 1-byte packing.</t>
+        <table>
+            <thead>
+                <tr><th>Offset (B)</th><th>Size (B)</th><th>Data Type</th><th>Field Name</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>0</td><td>4</td><td>char[4]</td><td>magic_number</td><td>MUST contain the ASCII characters "G3FC".</td></tr>
+                <tr><td>4</td><td>2</td><td>uint16_t</td><td>format_version_major</td><td>Major version of the specification. SHALL be 1.</td></tr>
+                <tr><td>6</td><td>2</td><td>uint16_t</td><td>format_version_minor</td><td>Minor version of the specification. SHALL be 0.</td></tr>
+                <tr><td>8</td><td>16</td><td>byte[16]</td><td>container_uuid</td><td>A 16-byte UUID (v4 RECOMMENDED) that uniquely identifies the container.</td></tr>
+                <tr><td>24</td><td>8</td><td>int64_t</td><td>creation_timestamp</td><td>Timestamp of the container's creation.</td></tr>
+                <tr><td>32</td><td>8</td><td>int64_t</td><td>modification_timestamp</td><td>Timestamp of the last modification.</td></tr>
+                <tr><td>40</td><td>4</td><td>uint32_t</td><td>edit_version</td><td>Starts at 1 and MUST be incremented on each modification.</td></tr>
+                <tr><td>44</td><td>32</td><td>char[32]</td><td>creating_system</td><td>Name of the creating software, UTF-8, null-padded.</td></tr>
+                <tr><td>76</td><td>32</td><td>char[32]</td><td>software_version</td><td>Version of the creating software, UTF-8, null-padded.</td></tr>
+                <tr><td>108</td><td>8</td><td>uint64_t</td><td>file_index_offset</td><td>Absolute offset (in bytes) from the beginning of the file to the start of the File Index.</td></tr>
+                <tr><td>116</td><td>8</td><td>uint64_t</td><td>file_index_length</td><td>Length of the File Index in bytes (after compression and encryption).</td></tr>
+                <tr><td>124</td><td>1</td><td>uint8_t</td><td>file_index_compression</td><td>0: None, 1: Zstandard. Current implementations SHALL use 1.</td></tr>
+                <tr><td>125</td><td>1</td><td>uint8_t</td><td>global_compression</td><td>0: Per-file compression, 1: Zstandard compression on the entire data block.</td></tr>
+                <tr><td>126</td><td>1</td><td>uint8_t</td><td>encryption_mode</td><td>0: None, 1: Single password for read/write.</td></tr>
+                <tr><td>127</td><td>64</td><td>byte[64]</td><td>read_salt</td><td>A 64-byte salt for the read password's KDF. MUST be zero-filled if not used.</td></tr>
+                <tr><td>191</td><td>64</td><td>byte[64]</td><td>write_salt</td><td>A 64-byte salt for the write password's KDF. MUST be zero-filled if not used.</td></tr>
+                <tr><td>255</td><td>4</td><td>uint32_t</td><td>kdf_iterations</td><td>Number of iterations for PBKDF2. SHOULD be a high value (e.g., >= 100,000).</td></tr>
+                <tr><td>259</td><td>1</td><td>uint8_t</td><td>fec_scheme</td><td>Forward Error Correction scheme. 0: None, 1: Reed-Solomon.</td></tr>
+                <tr><td>260</td><td>1</td><td>uint8_t</td><td>fec_level</td><td>Percentage of parity data for the Data FEC Block (0-50). Ignored for split archives.</td></tr>
+                <tr><td>261</td><td>8</td><td>uint64_t</td><td>fec_data_offset</td><td>Absolute offset to the Data FEC Block. In a split archive, this MUST be 0.</td></tr>
+                <tr><td>269</td><td>8</td><td>uint64_t</td><td>fec_data_length</td><td>Length of the Data FEC Block. In a split archive, this MUST be 0.</td></tr>
+                <tr><td>277</td><td>4</td><td>uint32_t</td><td>header_checksum</td><td>CRC-32 (IEEE 802.3 polynomial) of the header from byte 0 to 276.</td></tr>
+                <tr><td>281</td><td>50</td><td>byte[50]</td><td>reserved</td><td>Reserved for future use. MUST be filled with null bytes (0x00).</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section anchor="index">
+        <name>File Index</name>
+        <t>The File Index is a data block containing a catalog of all files and directories. The index SHALL be serialized using Concise Binary Object Representation (CBOR) <xref target="RFC8949"/>. The root object is a CBOR array, where each element is a CBOR map representing a file entry.</t>
+        <t>The entire serialized CBOR byte stream is then compressed using Zstandard <xref target="RFC8878"/> and MAY be encrypted.</t>
+        
+        <section anchor="index-entry">
+            <name>File Entry Object (CBOR Map)</name>
+            <t>Each entry in the CBOR array is a map with the following keys. Analysis of the reference implementations reveals extra fields for handling large, split files (chunking), which are included here.</t>
+            <table>
+                <thead>
+                    <tr><th>Key (string)</th><th>Value Type (CBOR)</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>path</td><td>text string</td><td>Full, POSIX-style path using forward slashes (/).</td></tr>
+                    <tr><td>type</td><td>text string</td><td>MUST be "file" or "directory".</td></tr>
+                    <tr><td>uuid</td><td>byte string (16)</td><td>Unique 16-byte UUID for this entry.</td></tr>
+                    <tr><td>creation_time</td><td>integer</td><td>int64_t creation timestamp.</td></tr>
+                    <tr><td>modification_time</td><td>integer</td><td>int64_t modification timestamp.</td></tr>
+                    <tr><td>permissions</td><td>unsigned integer</td><td>uint16_t POSIX-style permissions (e.g., 0o755).</td></tr>
+                    <tr><td>status</td><td>unsigned integer</td><td>uint8_t entry status. 0: Normal, 1: Hidden, 2: Deleted.</td></tr>
+                    <tr><td>original_filename</td><td>text string</td><td>(Files only) The original filename.</td></tr>
+                    <tr><td>data_offset</td><td>unsigned integer</td><td>(Files only) uint64_t offset to the file's data within its data block.</td></tr>
+                    <tr><td>data_size</td><td>unsigned integer</td><td>(Files only) uint64_t size of the file's data in bytes (after per-file compression).</td></tr>
+                    <tr><td>uncompressed_size</td><td>unsigned integer</td><td>(Files only) uint64_t original size of the file in bytes.</td></tr>
+                    <tr><td>compression</td><td>unsigned integer</td><td>(Files only) uint8_t. 0: None, 1: Zstandard. Ignored if global_compression is active.</td></tr>
+                    <tr><td>checksum</td><td>unsigned integer</td><td>(Files only) uint32_t CRC-32 checksum of the uncompressed file data.</td></tr>
+                    <tr><td>block_file_index</td><td>unsigned integer</td><td>(Split files) uint32_t index of the data block file (e.g., 0 for .g3fc0). For non-split archives, this is 0.</td></tr>
+                    <tr><td>chunk_group_id</td><td>byte string (16)</td><td>(Split files) A 16-byte UUID shared by all chunks of a single original file. This is used to reassemble the file.</td></tr>
+                    <tr><td>chunk_index</td><td>unsigned integer</td><td>(Split files) uint32_t sequential index of this chunk for a given file (0, 1, 2...).</td></tr>
+                    <tr><td>total_chunks</td><td>unsigned integer</td><td>(Split files) uint32_t total number of chunks for the file this piece belongs to.</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </section>
+
+    <section anchor="data-blocks">
+        <name>Data Blocks</name>
+        <t>The File Data section contains the actual content of the files. Its structure depends on whether the archive is split.</t>
+        <dl>
+            <dt>Non-Split Archive:</dt>
+            <dd>All file data is concatenated into one large data block. This block is then subject to global compression and encryption as specified in the header. It is located between the File Index and the Data FEC Block.</dd>
+            <dt>Split Archive:</dt>
+            <dd>The file data is chunked and written to separate files named &lt;archive_name&gt;.g3fc0, .g3fc1, etc. Each of these data block files is independently compressed and encrypted according to the global settings. The File Index entry's `block_file_index`, `data_offset`, and `data_size` fields are used to locate a specific chunk of data.</dd>
+        </dl>
+    </section>
+
+    <section anchor="compression">
+        <name>Compression</name>
+        <t>The G3FC format uses Zstandard (Zstd) for compression <xref target="RFC8878"/>.</t>
+        <dl>
+            <dt>Per-File Compression:</dt>
+            <dd>If the header's `global_compression` flag is 0, each file can be compressed individually before being added to the data block. The `compression` field in the file's index entry indicates if it was compressed.</dd>
+            <dt>Global Compression:</dt>
+            <dd>If `global_compression` is 1, the entire data block (either the concatenated data in a single archive or each split block file) is compressed as a whole with Zstd. In this mode, the per-file `compression` flag is ignored.</dd>
+        </dl>
+    </section>
+    
+    <section anchor="integrity">
+        <name>Data Integrity and Recovery</name>
+        <section anchor="checksums">
+            <name>Checksums</name>
+            <t>Data integrity is verified using CRC-32 checksums with the IEEE 802.3 polynomial (0xEDB88320).</t>
+            <ul>
+                <li><strong>File Data Checksum:</strong> Each file entry in the index contains a CRC-32 checksum of its original, uncompressed data.</li>
+                <li><strong>Header Checksum:</strong> The main header contains a checksum of its own content (bytes 0-276) to detect corruption.</li>
+                <li><strong>Footer Checksum:</strong> The footer contains a checksum of its first 32 bytes to ensure its integrity.</li>
+            </ul>
+        </section>
+        <section anchor="fec">
+            <name>Forward Error Correction (FEC)</name>
+            <t>If the `fec_scheme` in the header is 1, Reed-Solomon is used to generate parity data, allowing for recovery from corruption.</t>
+            <ul>
+                <li><strong>Data FEC Block:</strong> Calculated over the entire File Data Block (after global compression and encryption). Its size is determined by the `fec_level` percentage. This block is only present in non-split archives.</li>
+                <li><strong>Metadata FEC Block:</strong> A separate FEC block that provides resiliency for the most critical parts of the archive. It is calculated over the concatenated bytes of the Main Header and the <strong>uncompressed</strong> File Index. It is stored just before the Footer for robust recovery.</li>
+            </ul>
+        </section>
+    </section>
+
+    <section anchor="encryption">
+        <name>Security and Encryption</name>
+        <section anchor="kdf">
+            <name>Key Derivation</name>
+            <t>Cryptographic keys SHALL be derived from user-supplied passwords using PBKDF2 with HMAC-SHA256 as the pseudo-random function. The inputs are the password, the `read_salt` from the header, and the `kdf_iterations` count from the header. The derived key MUST be 32 bytes (256 bits) long.</t>
+        </section>
+        <section anchor="aes-gcm">
+            <name>Encryption</name>
+            <t>Data encryption SHALL be performed using AES-256 in GCM (Galois/Counter Mode). GCM provides both confidentiality and authenticity.</t>
+        </section>
+        <section anchor="payload-structure">
+            <name>Encrypted Payload Structure</name>
+            <t>For interoperability between implementations (specifically C#, Python, and Go), the encrypted payload SHALL be structured as follows:</t>
+            <artwork type="ascii-art">
+<![CDATA[
++------------------+--------------------------+------------------+
+| Nonce (12 bytes) | Authentication Tag (16B) | Ciphertext (...) |
++------------------+--------------------------+------------------+
+]]>
+            </artwork>
+        </section>
+        <section anchor="encryption-scope">
+            <name>Scope of Encryption</name>
+            <t>When encryption is active (`encryption_mode` > 0), the following blocks are encrypted:</t>
+            <ul>
+                <li>The File Index block.</li>
+                <li>The File Data Block (in non-split archives) or each individual Data Block file (in split archives).</li>
+            </ul>
+            <t>The Main Header and the Footer MUST NOT be encrypted to allow for initial parsing of the archive.</t>
+        </section>
+    </section>
+
+    <section anchor="footer">
+        <name>Footer</name>
+        <t>A fixed-size footer of 40 bytes is located at the very end of the .g3fc file. Its purpose is to allow an application to quickly find the File Index and Metadata FEC block without scanning the entire file. This is crucial for efficient operation, as it means the application can read the last 40 bytes, validate the footer's integrity, and then seek directly to the File Index location without needing to read or decompress the (potentially very large) file data block that precedes it.</t>
+        <table>
+            <thead>
+                <tr><th>Offset from End</th><th>Size (B)</th><th>Data Type</th><th>Field Name</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>-40</td><td>8</td><td>uint64_t</td><td>main_index_offset</td><td>Absolute offset to the File Index. MUST be identical to the header value.</td></tr>
+                <tr><td>-32</td><td>8</td><td>uint64_t</td><td>main_index_length</td><td>Length of the File Index. MUST be identical to the header value.</td></tr>
+                <tr><td>-24</td><td>8</td><td>uint64_t</td><td>metadata_fec_block_offset</td><td>Absolute offset to the Metadata FEC Block.</td></tr>
+                <tr><td>-16</td><td>8</td><td>uint64_t</td><td>metadata_fec_block_length</td><td>Length of the Metadata FEC Block.</td></tr>
+                <tr><td>-8</td><td>4</td><td>uint32_t</td><td>footer_checksum</td><td>CRC-32 checksum of the preceding 32 bytes of the footer.</td></tr>
+                <tr><td>-4</td><td>4</td><td>char[4]</td><td>footer_magic</td><td>MUST contain the ASCII characters "G3CE" (G3 Container End).</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section anchor="operations">
+        <name>File Operations</name>
+        <t><strong>Deletion:</strong> To mark a file or directory as deleted, its `status` field in the File Index SHALL be changed to 2. The actual file data is not removed from the data blocks. This allows for "undelete" functionality. A separate "compact" or "purge" operation MAY be implemented by an application to physically remove data marked as deleted and reclaim space.</t>
+    </section>
+
+    <section anchor="IANA">
+      <name>IANA Considerations</name>
+      <t>This document requests the registration of a new media type in the "application" tree, as follows:</t>
+      <dl>
+        <dt>Type name:</dt><dd>application</dd>
+        <dt>Subtype name:</dt><dd>vnd.g3pix.g3fc</dd>
+        <dt>Required parameters:</dt><dd>N/A</dd>
+        <dt>Optional parameters:</dt><dd>N/A</dd>
+        <dt>Encoding considerations:</dt><dd>binary</dd>
+        <dt>Security considerations:</dt><dd>See <xref target="Security"/> of this document.</dd>
+        <dt>Interoperability considerations:</dt><dd>This document specifies format version 1.0. All fields use little-endian byte order.</dd>
+        <dt>Published specification:</dt><dd>This document.</dd>
+        <dt>Applications that use this media type:</dt><dd>G3FC Archiver Tool and other compatible archiving utilities.</dd>
+        <dt>Fragment identifier considerations:</dt><dd>N/A</dd>
+        <dt>Additional information:</dt>
+        <dd>
+            <dl>
+                <dt>Magic number(s):</dt><dd>The first 4 bytes are 0x47 0x33 0x46 0x43 (ASCII "G3FC").</dd>
+                <dt>File extension(s):</dt><dd>.g3fc, .g3fc&lt;n&gt;</dd>
+                <dt>Macintosh file type code(s):</dt><dd>N/A</dd>
+            </dl>
+        </dd>
+        <dt>Person &amp; email address to contact for further information:</dt><dd>g3fc@g3pix.com.br</dd>
+        <dt>Intended usage:</dt><dd>COMMON</dd>
+        <dt>Restrictions on usage:</dt><dd>None</dd>
+        <dt>Author:</dt><dd>Lucas Guimaraes</dd>
+        <dt>Change controller:</dt><dd>G3Pix</dd>
+      </dl>
+    </section>
+    
+    <section anchor="Security">
+      <name>Security Considerations</name>
+      <t>Implementers of this specification should be aware of the following security aspects:</t>
+      <ul>
+        <li><strong>Password Strength:</strong> The security of an encrypted archive is entirely dependent on the strength of the user's password. Implementations SHOULD encourage or enforce strong password policies.</li>
+        <li><strong>KDF Iterations:</strong> The number of PBKDF2 iterations (`kdf_iterations`) is critical for resisting brute-force attacks. The recommended value of 100,000 is a baseline and SHOULD be increased over time as computing power grows.</li>
+        <li><strong>Salt:</strong> The use of a unique, randomly generated salt for each archive is crucial to prevent rainbow table attacks. The `read_salt` MUST be cryptographically random.</li>
+        <li><strong>Authenticated Encryption:</strong> The use of AES-256-GCM is REQUIRED as it provides authenticated encryption, protecting against certain types of attacks that can be performed on unauthenticated ciphers (e.g., bit-flipping attacks).</li>
+        <li><strong>Metadata Protection:</strong> While the file content is protected, some metadata in the Main Header is not encrypted. This includes timestamps and the name of the creating software. Users should be aware that this information is visible even in an encrypted archive.</li>
+        <li><strong>Path Traversal:</strong> Implementations that extract files MUST validate and sanitize the `path` field from the File Index to prevent path traversal attacks (e.g., writing files outside the intended destination directory). Paths containing ".." or absolute paths SHOULD be rejected or handled with extreme care.</li>
+        <li><strong>Compression:</strong> The media type employs Zstandard compression. As with any format that uses compression, G3FC files are susceptible to "compression bomb" denial-of-service attacks, where a small file decompresses to an extremely large size, potentially exhausting system memory or disk space. Implementations that parse this format SHOULD mitigate this risk by first checking the uncompressed_size field in the file's metadata index and enforcing reasonable limits on resource allocation before attempting decompression.</li>
+        <li><strong>Executable content:</strong> The media type does not contain any active or executable content. The G3FC format is a container for passive data files and metadata only.</li>
+	  </ul>
+    </section>
+  </middle>
+
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8949.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8878.xml"/>
+      </references>
+    </references>
+    
+    <section anchor="Contributors" numbered="false">
+      <name>Contributors</name>
+      <t>The G3FC format relies on several established technologies. The authors of the specifications for these technologies are acknowledged for their foundational work.</t>
+      <contact fullname="S. Bradner">
+        <organization>RFC 2119</organization>
+      </contact>
+      <contact fullname="B. Leiba">
+        <organization>RFC 8174</organization>
+      </contact>
+      <contact fullname="C. Bormann">
+         <organization>RFC 8949</organization>
+      </contact>
+      <contact fullname="P. Hoffman">
+         <organization>RFC 8949</organization>
+      </contact>
+      <contact fullname="Y. Collet">
+         <organization>RFC 8878</organization>
+      </contact>
+       <contact fullname="M. Kucher">
+         <organization>RFC 8878</organization>
+      </contact>
+    </section>
+  </back>
+</rfc>
