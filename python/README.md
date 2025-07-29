@@ -23,3 +23,13 @@ This document provides instructions on how to set up and use the Python version 
     ```bash
     pip install cbor2 zstandard pycryptodome reedsolo
     ```
+
+---
+
+## 3. Usage
+
+The application is run as a Python script from the command line.
+
+**General Syntax:**
+`python g3fc_tool.py <command> [options] [paths...]`
+
