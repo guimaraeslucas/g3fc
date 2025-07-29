@@ -31,5 +31,5 @@ This document provides instructions on how to set up and use the Python version 
 The application is run as a Python script from the command line.
 
 **General Syntax:**
-`python g3fc_tool.py <command> [options] [paths...]`
+`python g3fc.py <command> [options] [paths...]`
 
