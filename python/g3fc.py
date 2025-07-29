@@ -73,8 +73,8 @@ class Constants:
     FOOTER_MAGIC = b"G3CE"
     HEADER_SIZE = 331
     FOOTER_SIZE = 40
-    CREATING_SYSTEM = "G3Pix Py Lib"
-    SOFTWARE_VERSION = "1.0.2" # Version updated
+    CREATING_SYSTEM = "G3Pix Python G3FC Archiver"
+    SOFTWARE_VERSION = "1.0.10" # Version updated
     MAX_FEC_LIB_SHARDS = 255
     MIN_FEC_SHARDS = 1
     MAX_FEC_SHARDS = 254
