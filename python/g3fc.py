@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+#
 # G3FC Archiver Tool - Python Version
 #
-# @author  Lucas Guimarães - G3Pix <https:#github.com/guimaraeslucas/>
+# @author  Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>
 # @license GNU General Public License v2.0
-# @version 1.0.2
+# @version 1.0.10
 #
-# Copyright 2025, Lucas Guimarães - G3Pix Ltda <https:#g3pix.com.br>
+# Copyright 2025, Lucas Guimarães - G3Pix Ltda <https://g3pix.com.br>
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -23,8 +24,14 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
-# SECURITY WARNING: This is a basic reader/writer implementation.
-# It is the developer's responsibility to implement security checks.
+# SECURITY NOTICE AND IMPLEMENTATION GUIDANCE:
+#
+# While this Python implementation includes mitigations against the security vulnerabilities
+# described below, any other implementation based on the G3FC specification MUST
+# independently address these critical security concerns.
+#
+# For example and implementation purposes, the C# code shall always be considered
+# the most up-to-date and secure reference.
 #
 # 1. Path Traversal: A maliciously crafted archive could contain paths intended
 #    to overwrite sensitive system files (e.g., a path traversal attack using ../../..).
@@ -540,6 +547,25 @@ class G3FCReader:
         if not chunks: return
         
         first_chunk = chunks[0]
+
+    # Compression bomb mitigation
+
+        uncompressed_size = first_chunk.get('uncompressed_size', 0)
+        MAX_SAFE_SIZE = 4 * 1024 * 1024 * 1024  # 4gb
+
+        if uncompressed_size > MAX_SAFE_SIZE:
+            print(f"\nWARNING: The file '{first_chunk['path']}' has a very large uncompressed size ({uncompressed_size // 1024 // 1024} MB).")
+            print("Extracting it may consume a large amount of memory and could cause system instability.")
+            try:
+                response = input("Do you want to continue with the extraction? (y/n): ").lower().strip()
+                if response not in ['y', 'yes']:
+                    print(f"Skipping large file '{first_chunk['path']}' as per user request.")
+                    return  
+            except EOFError: 
+                print(f"Skipping large file '{first_chunk['path']}' due to non-interactive mode.")
+                return
+
+
         print(f"Extracting: {first_chunk['path']} ({len(chunks)} chunk(s))")
 
         read_key = None
@@ -591,7 +617,20 @@ class G3FCReader:
         if crc32_compute(final_data) != first_chunk['checksum']:
             raise ValueError(f"Checksum mismatch for file {first_chunk['original_filename']}")
 
-        dest_path = os.path.join(dest_dir, first_chunk['path'])
+        #Path transversal check
+        dest_dir_abs = os.path.abspath(dest_dir)
+
+        dest_path_unsafe = os.path.join(dest_dir_abs, first_chunk['path'])
+
+        dest_path_abs = os.path.abspath(dest_path_unsafe)
+
+        if os.path.commonprefix([dest_path_abs, dest_dir_abs]) != dest_dir_abs:
+            raise PermissionError(f"Path traversal attempt detected: '{first_chunk['path']}' is outside of the destination directory.")
+        
+        dest_path = dest_path_abs
+
+        #dest_path = os.path.join(dest_dir, first_chunk['path'])
+
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         
         with open(dest_path, 'wb') as f:
