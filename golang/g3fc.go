@@ -3,7 +3,7 @@
 //
 // @author  Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>
 // @license GNU General Public License v2.0
-// @version 1.0.4
+// @version 1.0.10
 //
 // Copyright 2025, Lucas Guimarães - G3Pix Ltda <https://g3pix.com.br>
 //
@@ -21,8 +21,14 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
-// SECURITY WARNING: This is a basic reader/writer implementation.
-// It is the developer's responsibility to implement security checks.
+// SECURITY NOTICE AND IMPLEMENTATION GUIDANCE:
+//
+// While this Go implementation includes mitigations against the security vulnerabilities
+// described below, any other implementation based on the G3FC specification MUST
+// independently address these critical security concerns.
+//
+// For example and implementation purposes, the C# code shall always be considered
+// the most up-to-date and secure reference.
 //
 // 1. Path Traversal: A maliciously crafted archive could contain paths intended
 //    to overwrite sensitive system files (e.g., a path traversal attack using ../../..).
@@ -39,6 +45,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
@@ -58,11 +65,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 	"github.com/klauspost/reedsolomon"
 	"golang.org/x/crypto/pbkdf2"
-	"github.com/fxamacker/cbor/v2"
 )
 
 // ===================================================================================
@@ -70,55 +77,55 @@ import (
 // ===================================================================================
 
 const (
-	MagicNumber        = "G3FC"
-	FooterMagic        = "G3CE"
-	HeaderSize         = 331
-	FooterSize         = 40
-	CreatingSystem     = "G3Pix Go Lib"
-	SoftwareVersion    = "1.0.4" // Version updated
-	MaxFECLibShards    = 255
-	MinFECShards       = 1
-	MaxFECShards       = 254
-	AESNonceSize       = 12 // Standard for AES-GCM
-	AESTagSize         = 16 // Standard for AES-GCM
+	MagicNumber     = "G3FC"
+	FooterMagic     = "G3CE"
+	HeaderSize      = 331
+	FooterSize      = 40
+	CreatingSystem  = "G3Pix GoLang G3FC Archiver"
+	SoftwareVersion = "1.0.10" // Version updated
+	MaxFECLibShards = 255
+	MinFECShards    = 1
+	MaxFECShards    = 254
+	AESNonceSize    = 12 // Standard for AES-GCM
+	AESTagSize      = 16 // Standard for AES-GCM
 )
 
 // MainHeader mirrors the C# struct with sequential layout and 1-byte packing.
 // We use fixed-size types to ensure compatibility.
 type MainHeader struct {
-	MagicNumber          [4]byte
-	FormatVersionMajor   uint16
-	FormatVersionMinor   uint16
-	ContainerUUID        [16]byte
-	CreationTimestamp    int64 // .NET Ticks
+	MagicNumber           [4]byte
+	FormatVersionMajor    uint16
+	FormatVersionMinor    uint16
+	ContainerUUID         [16]byte
+	CreationTimestamp     int64 // .NET Ticks
 	ModificationTimestamp int64 // .NET Ticks
-	EditVersion          uint32
-	CreatingSystem       [32]byte
-	SoftwareVersion      [32]byte
-	FileIndexOffset      uint64
-	FileIndexLength      uint64
-	FileIndexCompression byte
-	GlobalCompression    byte
-	EncryptionMode       byte
-	ReadSalt             [64]byte
-	WriteSalt            [64]byte
-	KDFIterations        uint32
-	FECScheme            byte
-	FECLevel             byte
-	FECDataOffset        uint64
-	FECDataLength        uint64
-	HeaderChecksum       uint32
-	Reserved             [50]byte
+	EditVersion           uint32
+	CreatingSystem        [32]byte
+	SoftwareVersion       [32]byte
+	FileIndexOffset       uint64
+	FileIndexLength       uint64
+	FileIndexCompression  byte
+	GlobalCompression     byte
+	EncryptionMode        byte
+	ReadSalt              [64]byte
+	WriteSalt             [64]byte
+	KDFIterations         uint32
+	FECScheme             byte
+	FECLevel              byte
+	FECDataOffset         uint64
+	FECDataLength         uint64
+	HeaderChecksum        uint32
+	Reserved              [50]byte
 }
 
 // Footer mirrors the C# struct.
 type Footer struct {
-	MainIndexOffset      uint64
-	MainIndexLength      uint64
+	MainIndexOffset        uint64
+	MainIndexLength        uint64
 	MetadataFECBlockOffset uint64
 	MetadataFECBlockLength uint64
-	FooterChecksum       uint32
-	FooterMagic          [4]byte
+	FooterChecksum         uint32
+	FooterMagic            [4]byte
 }
 
 // FileEntry contains metadata for each file in the archive.
@@ -194,7 +201,7 @@ func EncryptAESGCM(plaintext, key []byte) ([]byte, error) {
 	tag := sealed[len(plaintext):]
 
 	// Compatible format: Nonce + Tag + Ciphertext
-	result := make([]byte, 0, AESNonceSize + AESTagSize + len(ciphertext))
+	result := make([]byte, 0, AESNonceSize+AESTagSize+len(ciphertext))
 	result = append(result, nonce...)
 	result = append(result, tag...)
 	result = append(result, ciphertext...)
@@ -405,17 +412,17 @@ func createHeader(config Config, readSalt, writeSalt []byte) MainHeader {
 	ticksNow := UnixTicksToNetTicks(time.Now().Unix())
 	containerUUID, _ := uuid.NewRandom()
 	header := MainHeader{
-		FormatVersionMajor: 1,
-		FormatVersionMinor: 0,
-		CreationTimestamp: ticksNow,
+		FormatVersionMajor:    1,
+		FormatVersionMinor:    0,
+		CreationTimestamp:     ticksNow,
 		ModificationTimestamp: ticksNow,
-		EditVersion: 1,
-		FileIndexCompression: 1, // Always Zstd
-		GlobalCompression: 0,
-		EncryptionMode: config.EncryptionMode,
-		KDFIterations: config.KDFIterations,
-		FECScheme: config.FECScheme,
-		FECLevel: config.FECLevel,
+		EditVersion:           1,
+		FileIndexCompression:  1, // Always Zstd
+		GlobalCompression:     0,
+		EncryptionMode:        config.EncryptionMode,
+		KDFIterations:         config.KDFIterations,
+		FECScheme:             config.FECScheme,
+		FECLevel:              config.FECLevel,
 	}
 
 	copy(header.MagicNumber[:], []byte(MagicNumber))
@@ -499,8 +506,8 @@ func writeSingleArchive(outputFilePath string, fileIndex []FileEntry, fileDataBl
 
 	// 6. Create Footer
 	footer := Footer{
-		MainIndexOffset:      header.FileIndexOffset,
-		MainIndexLength:      header.FileIndexLength,
+		MainIndexOffset:        header.FileIndexOffset,
+		MainIndexLength:        header.FileIndexLength,
 		MetadataFECBlockOffset: currentOffset,
 		MetadataFECBlockLength: uint64(len(metadataFECBytes)),
 	}
@@ -637,8 +644,8 @@ func writeSplitArchive(outputFilePath string, originalFileIndex []FileEntry, com
 	}
 
 	footer := Footer{
-		MainIndexOffset:      header.FileIndexOffset,
-		MainIndexLength:      header.FileIndexLength,
+		MainIndexOffset:        header.FileIndexOffset,
+		MainIndexLength:        header.FileIndexLength,
 		MetadataFECBlockOffset: currentOffset,
 		MetadataFECBlockLength: uint64(len(metadataFECBytes)),
 	}
@@ -859,8 +866,28 @@ func extractFileFromChunks(archivePath, destDir string, chunks []FileEntry, head
 
 	finalData := reassembledStream.Bytes()
 	var err error
+
+	// Avoids compression bomb
+
+	uncompressedSize := firstChunk.UncompressedSize
+	const maxSafeSize = 4 * 1024 * 1024 * 1024 // 4 GB safe limit
+
+	if uncompressedSize > maxSafeSize {
+		fmt.Printf("\nWARNING: The file '%s' has a very large uncompressed size (%d MB).\n", firstChunk.Path, uncompressedSize/1024/1024)
+		fmt.Print("Extracting it may consume a large amount of memory and could cause system instability. Do you want to continue? (y/n): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		response, _ := reader.ReadString('\n')
+		response = strings.TrimSpace(strings.ToLower(response))
+
+		if response != "y" && response != "yes" {
+			fmt.Println("Extraction cancelled by the user.")
+			return nil // User chose to cancel the extraction
+		}
+	}
+
 	if header.GlobalCompression == 0 && firstChunk.Compression == 1 {
-		finalData, err = zstdDecoder.DecodeAll(finalData, nil)
+		finalData, err = zstdDecoder.DecodeAll(finalData, make([]byte, 0, uncompressedSize))
 		if err != nil {
 			return err
 		}
@@ -870,7 +897,18 @@ func extractFileFromChunks(archivePath, destDir string, chunks []FileEntry, head
 		return fmt.Errorf("checksum mismatch for file %s", firstChunk.OriginalFilename)
 	}
 
-	destPath := filepath.Join(destDir, firstChunk.Path)
+	//Path transversal correction
+	destDirAbs, err := filepath.Abs(destDir)
+	if err != nil {
+		return fmt.Errorf("could not determine absolute destination path: %w", err)
+	}
+
+	destPath := filepath.Join(destDirAbs, firstChunk.Path)
+
+	if !strings.HasPrefix(destPath, destDirAbs+string(os.PathSeparator)) && destPath != destDirAbs {
+		return fmt.Errorf("path traversal attempt detected: '%s' tries to escape the destination directory", firstChunk.Path)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}
@@ -980,7 +1018,7 @@ func main() {
 	case "create", "c":
 		createCmd.Parse(args)
 		if *createOutput == "" || createCmd.NArg() == 0 {
-			fmt.Fprintln(os.Stderr, "Error: Output path and at least one input path are required for 'create'.\n")
+			fmt.Fprintln(os.Stderr, "Error: Output path and at least one input path are required for 'create'.")
 			showHelp()
 			return
 		}
