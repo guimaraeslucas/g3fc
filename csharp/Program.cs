@@ -3,7 +3,7 @@
 //
 // @author  Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>
 // @license GNU General Public License v2.0
-// @version 1.0.9
+// @version 1.0.10
 //
 // Copyright 2025, Lucas Guimarães - G3Pix Ltda <https://g3pix.com.br>
 //
@@ -21,8 +21,14 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
-// SECURITY WARNING: This is a basic reader/writer implementation.
-// It is the developer's responsibility to implement security checks.
+// SECURITY NOTICE AND IMPLEMENTATION GUIDANCE:
+//
+// While this C# implementation includes mitigations against the security vulnerabilities
+// described below, any other implementation based on the G3FC specification MUST
+// independently address these critical security concerns.
+//
+// For example and implementation purposes, this C# code shall always be considered
+// the most up-to-date and secure reference.
 //
 // 1. Path Traversal: A maliciously crafted archive could contain paths intended
 //    to overwrite sensitive system files (e.g., a path traversal attack using ../../..).
@@ -66,8 +72,8 @@ namespace G3FC
         public const string FooterMagic = "G3CE";
         public const int HeaderSize = 331;
         public const int FooterSize = 40;
-        public const string CreatingSystem = "G3Pix C# Lib";
-        public const string SoftwareVersion = "1.0.9"; // Version updated
+        public const string CreatingSystem = "G3Pix C# G3FC Archiver";
+        public const string SoftwareVersion = "1.0.10"; // Version updated
         public const int MaxFECLibShards = 255;
         public const int MinFECShards = 1;
         public const int MaxFECShards = 254;
@@ -567,6 +573,43 @@ namespace G3FC
 
             byte[] finalData = reassembledStream.ToArray();
 
+            //First chunk uncompressed size
+            ulong uncompressedSize = firstChunk.UncompressedSize;
+
+            //Safe limit of 4gb.
+            const long MAX_UNCOMPRESSED_SIZE_SAFE_LIMIT = 4L * 1024 * 1024 * 1024; // 4 GB
+
+            //Checks disk space
+            try
+            {
+                DriveInfo driveInfo = new DriveInfo(Path.GetPathRoot(destDir));
+                if ((long)uncompressedSize > driveInfo.AvailableFreeSpace)
+                {
+                    Console.WriteLine($"Error: Not enough disk space to extract {firstChunk.Path}. Required: {uncompressedSize / 1024.0 / 1024.0:F2} MB, Available: {driveInfo.AvailableFreeSpace / 1024.0 / 1024.0:F2} MB.");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Could not check disk space. {ex.Message}");
+            }
+
+
+            // 3. Check if uncompressedSize against safe limit
+            if (uncompressedSize > (ulong)MAX_UNCOMPRESSED_SIZE_SAFE_LIMIT)
+            {
+                Console.WriteLine($"\nWARNING: The file '{firstChunk.Path}' has a very large uncompressed size: {uncompressedSize / 1024.0 / 1024.0:F2} MB.");
+                Console.WriteLine("Extracting it may consume a large amount of memory and cause system instability.");
+                Console.Write("Do you want to proceed with the extraction? (y/n): ");
+                string response = Console.ReadLine()?.ToLower();
+                if (response != "y" && response != "yes")
+                {
+                    Console.WriteLine("Extraction cancelled by user.");
+                    return;
+                }
+            }
+
+
             if (header.GlobalCompression == 0 && firstChunk.Compression == 1)
             {
                 using var decompressor = new ZstdSharp.Decompressor();
@@ -578,7 +621,19 @@ namespace G3FC
                 throw new Exception($"Checksum mismatch for file {firstChunk.OriginalFilename}");
             }
 
-            string destPath = Path.Combine(destDir, firstChunk.Path.TrimStart('/'));
+            //Check the full path
+            string destinationDirectoryFullPath = Path.GetFullPath(destDir);
+            string destinationFileFullPath = Path.GetFullPath(Path.Combine(destinationDirectoryFullPath, firstChunk.Path.TrimStart('/')));
+
+            //Validate path
+            if (!destinationFileFullPath.StartsWith(destinationDirectoryFullPath + Path.DirectorySeparatorChar))
+            {
+                //Wrong path
+                Console.WriteLine($"Error: Malicious path detected (Path Traversal attempt). Skipping file: {firstChunk.Path}");
+                return; // Skip file
+            }
+
+            string destPath = destinationFileFullPath;
             Directory.CreateDirectory(Path.GetDirectoryName(destPath));
             File.WriteAllBytes(destPath, finalData);
 
@@ -664,7 +719,9 @@ namespace G3FC
 
         public static byte[] DecryptAESGCM(byte[] ciphertext, byte[] key)
         {
-            using var aes = new AesGcm(key);
+            try
+            {
+                using var aes = new AesGcm(key);
             int nonceSize = AesGcm.NonceByteSizes.MaxSize;
             int tagSize = AesGcm.TagByteSizes.MaxSize;
             var nonce = ciphertext.Take(nonceSize).ToArray();
@@ -673,6 +730,11 @@ namespace G3FC
             var plaintext = new byte[encryptedData.Length];
             aes.Decrypt(nonce, encryptedData, tag, plaintext);
             return plaintext;
+            }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                throw new Exception("The password provided is incorrect or the encrypted data is corrupt.");
+            }
         }
 
         public static byte[] CreateFEC(byte[] data, byte fecLevel)
@@ -878,7 +940,11 @@ namespace G3FC
             catch (Exception ex)
             {
                 Console.WriteLine($"\nAn unexpected error occurred: {ex.Message}");
+#if DEBUG
+                //Shows stacktrace only if in debug mode
                 Console.WriteLine(ex.StackTrace);
+#endif
+
             }
         }
 
@@ -1013,7 +1079,12 @@ namespace G3FC
 
             if (!Directory.Exists(outputPath))
             {
-                Directory.CreateDirectory(outputPath);
+                try
+                {
+                    Directory.CreateDirectory(outputPath);
+                } catch {
+                    throw new Exception("Could not create output directory");
+                }
             }
 
             var header = G3FCHelpers.BytesToStruct<MainHeader>(G3FCHelpers.ReadBytes(new FileStream(archivePath, FileMode.Open, FileAccess.Read), 0, Constants.HeaderSize));
@@ -1071,5 +1142,5 @@ namespace G3FC
             }
         }
     }
-    #endregion
+#endregion
 }
