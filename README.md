@@ -80,6 +80,7 @@ G3FC is designed for broad compatibility. Explore our official open-source libra
 
 * **[C# / .NET](https://github.com/guimaraeslucas/g3fc/tree/main/csharp)**: A fully-featured .NET command line interface for integration into your C# applications.
 * **[Go (Golang)](https://github.com/guimaraeslucas/g3fc/tree/main/golang)**: A high-performance Go command-line tool for maximum speed.
+* **[Rust](https://github.com/guimaraeslucas/g3fc/tree/main/rust)**: Incredible speed with native performance command-line tool.
 * **[Python](https://github.com/guimaraeslucas/g3fc/tree/main/python)**: A flexible Python command line interface using native bindings for incredible speed, perfect for scripting and data science.
 
 ## 📄 Technical Specification
@@ -101,7 +102,7 @@ This project is licensed under the **GNU General Public License v2.0**. Please s
 <img src="https://g3pix.com.br/favicon.svg" alt="G3pix Logo" width="48"/>
 This project is maintained by **G3Pix**.
 
-* **Author**: Lucas Guimarães
+* **Author**: Lucas Guimarães - Proudly made in Brazil to the World
 * **Website**: [g3pix.com.br/g3fc](https://g3pix.com.br/g3fc/)
 
 ---
