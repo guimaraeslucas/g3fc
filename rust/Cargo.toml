@@ -1,0 +1,35 @@
+[package]
+name = "g3fc_rust"
+version = "1.0.10"
+edition = "2024"
+description = "A Rust implementation of the G3FC (G3 File Container) archiver format."
+license = "GPL-2.0-or-later"
+
+[dependencies]
+# Core Utilities
+anyhow = "1.0.86"
+byteorder = "1.5.0"
+chrono = "0.4.38"
+walkdir = "2.5.0"
+
+# Command-Line Interface
+clap = { version = "4.5.4", features = ["derive"] }
+
+# Data Handling & Integrity
+serde = { version = "1.0.203", features = ["derive"] }
+serde_cbor = "0.11.2"
+serde_bytes = "0.11.14" # Added for correct byte string serialization
+crc32fast = "1.4.2"
+uuid = { version = "1.8.0", features = ["v4"] }
+
+# Compression
+zstd = "0.13.1"
+
+# Cryptography
+aes-gcm = "0.10.3"
+pbkdf2 = "0.12.2"
+sha2 = "0.10.8"
+rand = "0.8.5"
+
+# Forward Error Correction
+reed-solomon-erasure = "5.0.3"
