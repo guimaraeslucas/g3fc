@@ -100,9 +100,9 @@ This project is licensed under the **GNU General Public License v2.0**. Please s
 
 ## 📞 Contact
 <img src="https://g3pix.com.br/favicon.svg" alt="G3pix Logo" width="48"/>
-This project is maintained by **G3Pix**.
+This project is maintained by G3Pix.
 
-* **Author**: Lucas Guimarães - Proudly made in Brazil to the World
+* **Author**: G3Pix / Lucas Guimarães - Proudly made in Brazil to the World
 * **Website**: [g3pix.com.br/g3fc](https://g3pix.com.br/g3fc/)
 
 ---
