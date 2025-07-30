@@ -27,20 +27,16 @@ This document provides instructions on how to set up and use the Rust version of
 
 ---
 
-## 2. Setup
+## 2. Compilation
 
-1.  **Navigate to the project directory** where the Cargo.toml is located.
-2.  **Install and build** using `cargo`:
+You can compile the application using standard Cargo tooling.
+
+1.  **Navigate to the project directory** where the `Cargo.toml` file is located.
+
+2.  **Build the executable:** (this will also download the required libraries)
 
     ```bash
     cargo build --release
     ```
 
----
-
-## 3. Usage
-
-The application is run as a Python script from the command line.
-
-**General Syntax:**
-`python g3fc.py <command> [options] [paths...]`
+3.  The compiled executable `g3fc_rust(.exe)` will be created in the release directory.
