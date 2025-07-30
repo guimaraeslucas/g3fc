@@ -80,7 +80,7 @@ G3FC is designed for broad compatibility. Explore our official open-source libra
 
 * **[C# / .NET](https://github.com/guimaraeslucas/g3fc/tree/main/csharp)**: A fully-featured .NET command line interface for integration into your C# applications.
 * **[Go (Golang)](https://github.com/guimaraeslucas/g3fc/tree/main/golang)**: A high-performance Go command-line tool for maximum speed.
-* **[Rust](https://github.com/guimaraeslucas/g3fc/tree/main/rust)**: Incredible speed with native performance command-line tool.
+* **[Rust](https://github.com/guimaraeslucas/g3fc/tree/main/rust)**: Experience ultimate performance and memory safety with our Rust command-line tool.
 * **[Python](https://github.com/guimaraeslucas/g3fc/tree/main/python)**: A flexible Python command line interface using native bindings for incredible speed, perfect for scripting and data science.
 
 ## 📄 Technical Specification
