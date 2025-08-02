@@ -3,7 +3,7 @@
 //
 // @author  Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>
 // @license GNU General Public License v2.0
-// @version 1.0.10
+// @version 1.1.3
 //
 // Copyright 2025, Lucas Guimarães - G3Pix Ltda <https://g3pix.com.br>
 //
@@ -42,10 +42,31 @@
 //    in the file's metadata index and enforcing reasonable limits on resource
 //    allocation before attempting decompression.
 
+// ===================================================================================
+// DEPENDENCIES for Cargo.toml:
+// [dependencies]
+// anyhow = "1.0"
+// byteorder = "1.4"
+// chrono = { version = "0.4", features = ["serde"] }
+// clap = { version = "4.3", features = ["derive"] }
+// crc32fast = "1.3"
+// pbkdf2 = "0.12"
+// rand = "0.8"
+// reed-solomon-erasure = "4.0"
+// serde = { version = "1.0", features = ["derive"] }
+// serde_cbor = "0.11"
+// serde_json = "1.0"
+// sha2 = "0.10"
+// uuid = { version = "1.4", features = ["v4", "serde"] }
+// walkdir = "2.3"
+// aes-gcm = "0.10"
+// serde_bytes = "0.11"
+// regex = "1.9"
+// ===================================================================================
 
 use anyhow::{anyhow, bail, Context, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use chrono::Utc;
+use chrono::{DateTime, TimeZone, Utc};
 use clap::{Parser, Subcommand};
 use crc32fast::Hasher;
 use pbkdf2::pbkdf2_hmac;
@@ -54,34 +75,18 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::{Read, Write, Seek, SeekFrom, BufReader};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use uuid::Uuid;
 
 // ===================================================================================
-// 1. CONSTANTS AND DATA STRUCTURES
+// 1. DATA STRUCTURES
 // ===================================================================================
-
-mod constants {
-    pub const MAGIC_NUMBER: &[u8; 4] = b"G3FC";
-    pub const FOOTER_MAGIC: &[u8; 4] = b"G3CE";
-    pub const HEADER_SIZE: u64 = 331;
-    pub const FOOTER_SIZE: u64 = 40;
-    pub const CREATING_SYSTEM: &str = "G3Pix Rust G3FC Archiver";
-    pub const SOFTWARE_VERSION: &str = "1.0.12"; // Version updated
-    pub const MAX_FEC_LIB_SHARDS: usize = 255;
-    pub const MIN_FEC_SHARDS: usize = 1;
-    pub const MAX_FEC_SHARDS: usize = 254;
-    pub const AES_NONCE_SIZE: usize = 12;
-    pub const AES_TAG_SIZE: usize = 16;
-    // .NET Ticks between the 0001-01-01 epoch and the Unix 1970-01-01 epoch.
-    pub const DOTNET_EPOCH_TICKS: i64 = 621_355_968_000_000_000;
-}
 
 #[derive(Debug, Clone)]
 #[repr(C, packed)]
-struct MainHeader {
+pub struct MainHeader {
     magic_number: [u8; 4],
     format_version_major: u16,
     format_version_minor: u16,
@@ -109,7 +114,7 @@ struct MainHeader {
 
 #[derive(Debug, Clone)]
 #[repr(C, packed)]
-struct Footer {
+pub struct Footer {
     main_index_offset: u64,
     main_index_length: u64,
     metadata_fec_block_offset: u64,
@@ -119,7 +124,7 @@ struct Footer {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct FileEntry {
+pub struct FileEntry {
     path: String,
     #[serde(rename = "type")]
     entry_type: String,
@@ -143,56 +148,73 @@ struct FileEntry {
     total_chunks: u32,
 }
 
+#[derive(Debug, Serialize)]
+struct FileEntryJsonExport {
+    #[serde(rename = "Path")]
+    path: String,
+    #[serde(rename = "Type")]
+    entry_type: String,
+    #[serde(rename = "UUID")]
+    uuid: String,
+    #[serde(rename = "CreationTime")]
+    creation_time: String,
+    #[serde(rename = "ModificationTime")]
+    modification_time: String,
+    #[serde(rename = "Permissions")]
+    permissions: String,
+    #[serde(rename = "Status")]
+    status: u8,
+    #[serde(rename = "OriginalFilename")]
+    original_filename: String,
+    #[serde(rename = "UncompressedSize")]
+    uncompressed_size: u64,
+    #[serde(rename = "Checksum")]
+    checksum: u32,
+    #[serde(rename = "BlockFileIndex")]
+    block_file_index: u32,
+    #[serde(rename = "ChunkGroupId")]
+    chunk_group_id: String,
+    #[serde(rename = "ChunkIndex")]
+    chunk_index: u32,
+    #[serde(rename = "TotalChunks")]
+    total_chunks: u32,
+}
+
 impl MainHeader {
     fn from_reader<R: Read>(reader: &mut R) -> Result<Self> {
         let mut header = Self {
-            magic_number: [0; 4],
-            format_version_major: 0,
-            format_version_minor: 0,
-            container_uuid: [0; 16],
-            creation_timestamp: 0,
-            modification_timestamp: 0,
-            edit_version: 0,
-            creating_system: [0; 32],
-            software_version: [0; 32],
-            file_index_offset: 0,
-            file_index_length: 0,
-            file_index_compression: 0,
-            global_compression: 0,
-            encryption_mode: 0,
-            read_salt: [0; 64],
-            write_salt: [0; 64],
-            kdf_iterations: 0,
-            fec_scheme: 0,
-            fec_level: 0,
-            fec_data_offset: 0,
-            fec_data_length: 0,
-            header_checksum: 0,
-            reserved: [0; 50],
+            magic_number: [0; 4], format_version_major: 0, format_version_minor: 0,
+            container_uuid: [0; 16], creation_timestamp: 0, modification_timestamp: 0,
+            edit_version: 0, creating_system: [0; 32], software_version: [0; 32],
+            file_index_offset: 0, file_index_length: 0, file_index_compression: 0,
+            global_compression: 0, encryption_mode: 0, read_salt: [0; 64],
+            write_salt: [0; 64], kdf_iterations: 0, fec_scheme: 0, fec_level: 0,
+            fec_data_offset: 0, fec_data_length: 0, header_checksum: 0, reserved: [0; 50],
         };
-        reader.read_exact(&mut header.magic_number)?;
-        header.format_version_major = reader.read_u16::<LittleEndian>()?;
-        header.format_version_minor = reader.read_u16::<LittleEndian>()?;
-        reader.read_exact(&mut header.container_uuid)?;
-        header.creation_timestamp = reader.read_i64::<LittleEndian>()?;
-        header.modification_timestamp = reader.read_i64::<LittleEndian>()?;
-        header.edit_version = reader.read_u32::<LittleEndian>()?;
-        reader.read_exact(&mut header.creating_system)?;
-        reader.read_exact(&mut header.software_version)?;
-        header.file_index_offset = reader.read_u64::<LittleEndian>()?;
-        header.file_index_length = reader.read_u64::<LittleEndian>()?;
-        header.file_index_compression = reader.read_u8()?;
-        header.global_compression = reader.read_u8()?;
-        header.encryption_mode = reader.read_u8()?;
-        reader.read_exact(&mut header.read_salt)?;
-        reader.read_exact(&mut header.write_salt)?;
-        header.kdf_iterations = reader.read_u32::<LittleEndian>()?;
-        header.fec_scheme = reader.read_u8()?;
-        header.fec_level = reader.read_u8()?;
-        header.fec_data_offset = reader.read_u64::<LittleEndian>()?;
-        header.fec_data_length = reader.read_u64::<LittleEndian>()?;
-        header.header_checksum = reader.read_u32::<LittleEndian>()?;
-        reader.read_exact(&mut header.reserved)?;
+        let mut rdr = BufReader::new(reader);
+        rdr.read_exact(&mut header.magic_number)?;
+        header.format_version_major = rdr.read_u16::<LittleEndian>()?;
+        header.format_version_minor = rdr.read_u16::<LittleEndian>()?;
+        rdr.read_exact(&mut header.container_uuid)?;
+        header.creation_timestamp = rdr.read_i64::<LittleEndian>()?;
+        header.modification_timestamp = rdr.read_i64::<LittleEndian>()?;
+        header.edit_version = rdr.read_u32::<LittleEndian>()?;
+        rdr.read_exact(&mut header.creating_system)?;
+        rdr.read_exact(&mut header.software_version)?;
+        header.file_index_offset = rdr.read_u64::<LittleEndian>()?;
+        header.file_index_length = rdr.read_u64::<LittleEndian>()?;
+        header.file_index_compression = rdr.read_u8()?;
+        header.global_compression = rdr.read_u8()?;
+        header.encryption_mode = rdr.read_u8()?;
+        rdr.read_exact(&mut header.read_salt)?;
+        rdr.read_exact(&mut header.write_salt)?;
+        header.kdf_iterations = rdr.read_u32::<LittleEndian>()?;
+        header.fec_scheme = rdr.read_u8()?;
+        header.fec_level = rdr.read_u8()?;
+        header.fec_data_offset = rdr.read_u64::<LittleEndian>()?;
+        header.fec_data_length = rdr.read_u64::<LittleEndian>()?;
+        header.header_checksum = rdr.read_u32::<LittleEndian>()?;
+        rdr.read_exact(&mut header.reserved)?;
         Ok(header)
     }
 
@@ -249,9 +271,27 @@ impl Footer {
     }
 }
 
+// ===================================================================================
+// CONSTANTS
+// ===================================================================================
+
+mod constants {
+    pub const MAGIC_NUMBER: &[u8; 4] = b"G3FC";
+    pub const FOOTER_MAGIC: &[u8; 4] = b"G3CE";
+    pub const HEADER_SIZE: u64 = 331;
+    pub const FOOTER_SIZE: u64 = 40;
+    pub const CREATING_SYSTEM: &str = "G3Pix Rust G3FC Archiver";
+    pub const SOFTWARE_VERSION: &str = "1.1.3";
+    pub const MAX_FEC_LIB_SHARDS: usize = 255;
+    pub const MIN_FEC_SHARDS: usize = 1;
+    pub const MAX_FEC_SHARDS: usize = 254;
+    pub const AES_NONCE_SIZE: usize = 12;
+    pub const AES_TAG_SIZE: usize = 16;
+    pub const DOTNET_EPOCH_TICKS: i64 = 621_355_968_000_000_000;
+}
 
 // ===================================================================================
-// 2. HELPER METHODS (G3FCHelpers)
+// HELPER FUNCTIONS
 // ===================================================================================
 
 mod helpers {
@@ -276,6 +316,12 @@ mod helpers {
         let unix_time = sys_time.duration_since(std::time::UNIX_EPOCH)?;
         let unix_ticks = unix_time.as_nanos() as i64 / 100;
         Ok(constants::DOTNET_EPOCH_TICKS + unix_ticks)
+    }
+
+    pub fn net_ticks_to_datetime(ticks: i64) -> DateTime<Utc> {
+        let unix_ticks = ticks - constants::DOTNET_EPOCH_TICKS;
+        let unix_nanos = unix_ticks * 100;
+        Utc.timestamp_nanos(unix_nanos)
     }
 
     pub fn derive_key(password: &str, salt: &[u8], iterations: u32) -> [u8; 32] {
@@ -362,7 +408,7 @@ mod helpers {
         #[cfg(not(unix))]
         {
             let mut current_perms = fs::metadata(path)?.permissions();
-            current_perms.set_readonly((perms & 0o200) == 0);
+            current_perms.set_readonly((perms & 0o222) == 0);
             fs::set_permissions(path, current_perms)?;
         }
         Ok(())
@@ -374,19 +420,16 @@ mod helpers {
             (s, 1024 * 1024 * 1024)
         } else if let Some(s) = upper.strip_suffix("MB") {
             (s, 1024 * 1024)
-        } else if let Some(s) = upper.strip_suffix("KB") {
-            (s, 1024)
         } else {
-            bail!("Invalid size format. Use a number followed by KB, MB, or GB (e.g., 100MB)");
+            bail!("Invalid size format. Use a number followed by MB or GB (e.g., 100MB)");
         };
         let size = i64::from_str(num_str.trim())?;
         Ok(size * multiplier)
     }
 }
 
-
 // ===================================================================================
-// 3. ARCHIVE WRITER LOGIC
+// ARCHIVE WRITER LOGIC
 // ===================================================================================
 mod writer {
     use super::*;
@@ -697,16 +740,15 @@ mod writer {
     }
 }
 
-
 // ===================================================================================
-// 4. ARCHIVE READER LOGIC
+// ARCHIVE READER LOGIC
 // ===================================================================================
 mod reader {
     use super::*;
 
     pub fn extract_archive(args: &ExtractArgs) -> Result<()> {
         let archive_path = &args.archive_path;
-        let dest_dir = &args.output_dir;
+        let dest_dir = &args.output;
 
         println!("Reading archive metadata from '{}'...", archive_path.display());
         let (header, file_index) = read_archive_metadata(archive_path, args.password.as_deref())?;
@@ -737,7 +779,7 @@ mod reader {
         Ok(())
     }
 
-    fn read_archive_metadata(path: &Path, password: Option<&str>) -> Result<(MainHeader, Vec<FileEntry>)> {
+    pub fn read_archive_metadata(path: &Path, password: Option<&str>) -> Result<(MainHeader, Vec<FileEntry>)> {
         let mut file = File::open(path)?;
         file.seek(SeekFrom::End(-(constants::FOOTER_SIZE as i64)))?;
         let footer = Footer::from_reader(&mut file)?;
@@ -765,7 +807,7 @@ mod reader {
         Ok((header, file_index))
     }
 
-    fn extract_file_from_chunks(
+    pub fn extract_file_from_chunks(
         archive_path: &Path, dest_dir: &Path, chunks: &[FileEntry], header: &MainHeader,
         read_key: Option<[u8; 32]>, cache: &mut HashMap<u32, Vec<u8>>
     ) -> Result<()> {
@@ -847,9 +889,176 @@ mod reader {
     }
 }
 
+// ===================================================================================
+// COMMANDS LOGIC
+// ===================================================================================
+mod commands {
+    use super::*;
+    use regex::Regex;
+
+    pub fn list_files_in_container(args: &ListArgs) -> Result<()> {
+        println!("Listing contents of: {}\n", args.archive_path.display());
+        let (_header, file_index) = reader::read_archive_metadata(&args.archive_path, args.password.as_deref())?;
+
+        let mut logical_files = HashMap::new();
+        for entry in file_index {
+            logical_files.entry(entry.path.clone()).or_insert(entry);
+        }
+        
+        let mut sorted_files: Vec<_> = logical_files.values().collect();
+        sorted_files.sort_by(|a, b| a.path.cmp(&b.path));
+
+        let mut header_str = format!("{:<60} {:<15} {:<12}", "Path", "Size", "Type");
+        if args.details {
+            header_str.push_str(&format!(" {:<12} {:<22} {}", "Permissions", "Creation Time", "Checksum"));
+        }
+        println!("{}", header_str);
+        println!("{}", "-".repeat(120));
+
+        for entry in sorted_files {
+            let formatted_size = format_size(entry.uncompressed_size, &args.unit);
+            let mut line = format!("{:<60} {:<15} {:<12}", entry.path, formatted_size, entry.entry_type);
+            if args.details {
+                let creation_time = helpers::net_ticks_to_datetime(entry.creation_time);
+                let permissions = format_permissions(entry.permissions);
+                line.push_str(&format!(" {:<12} {:<22} {:08X}", permissions, creation_time.format("%Y-%m-%d %H:%M:%S"), entry.checksum));
+            }
+            println!("{}", line);
+        }
+
+        Ok(())
+    }
+
+    pub fn export_info(args: &InfoArgs) -> Result<()> {
+        let (_header, file_index) = reader::read_archive_metadata(&args.archive_path, args.password.as_deref())?;
+        
+        let export_list: Vec<FileEntryJsonExport> = file_index.into_iter().map(|entry| {
+            FileEntryJsonExport {
+                path: entry.path,
+                entry_type: entry.entry_type,
+                uuid: Uuid::from_slice(&entry.uuid).unwrap_or_default().to_string(),
+                creation_time: helpers::net_ticks_to_datetime(entry.creation_time).to_rfc3339(),
+                modification_time: helpers::net_ticks_to_datetime(entry.modification_time).to_rfc3339(),
+                permissions: format!("0o{:o}", entry.permissions),
+                status: entry.status,
+                original_filename: entry.original_filename,
+                uncompressed_size: entry.uncompressed_size,
+                checksum: entry.checksum,
+                block_file_index: entry.block_file_index,
+                chunk_group_id: if entry.chunk_group_id.len() == 16 { Uuid::from_slice(&entry.chunk_group_id).unwrap_or_default().to_string() } else { "N/A".to_string() },
+                chunk_index: entry.chunk_index,
+                total_chunks: entry.total_chunks,
+            }
+        }).collect();
+
+        let json_string = serde_json::to_string_pretty(&export_list)?;
+        fs::write(&args.output, json_string)
+            .with_context(|| format!("Failed to write JSON to {}", args.output.display()))?;
+
+        println!("File index successfully exported to {}", args.output.display());
+        Ok(())
+    }
+
+    pub fn find_files_in_container(args: &FindArgs) -> Result<()> {
+        let (_header, file_index) = reader::read_archive_metadata(&args.archive_path, args.password.as_deref())?;
+        
+        let mut logical_files = HashMap::new();
+        for entry in file_index {
+            logical_files.entry(entry.path.clone()).or_insert(entry);
+        }
+        let files_to_search: Vec<_> = logical_files.values().collect();
+
+        let found_files: Vec<_> = if args.regex {
+            let re = Regex::new(&args.pattern).with_context(|| "Invalid regex pattern")?;
+            files_to_search.into_iter().filter(|e| re.is_match(&e.path)).collect()
+        } else {
+            files_to_search.into_iter().filter(|e| e.path.to_lowercase().contains(&args.pattern.to_lowercase())).collect()
+        };
+
+        println!("\nFound {} matching entries for pattern '{}':", found_files.len(), args.pattern);
+        println!("{:<60} {:<15} {:<22}", "Path", "Size", "Creation Time");
+        println!("{}", "-".repeat(100));
+
+        for entry in found_files {
+            let formatted_size = format_size(entry.uncompressed_size, &args.unit);
+            let creation_time = helpers::net_ticks_to_datetime(entry.creation_time);
+            println!("{:<60} {:<15} {:<22}", entry.path, formatted_size, creation_time.format("%Y-%m-%d %H:%M:%S"));
+        }
+        Ok(())
+    }
+
+    pub fn extract_single_file(args: &ExtractSingleArgs) -> Result<()> {
+        println!("Attempting to extract '{}' to '{}'...", args.file_in_archive, args.output.display());
+        
+        let (header, file_index) = reader::read_archive_metadata(&args.archive_path, args.password.as_deref())?;
+
+        let chunks_to_extract: Vec<FileEntry> = file_index
+            .into_iter()
+            .filter(|entry| entry.path == args.file_in_archive)
+            .collect();
+
+        if chunks_to_extract.is_empty() {
+            return Err(anyhow!("File '{}' not found in the archive.", args.file_in_archive));
+        }
+        
+        let first_chunk = &chunks_to_extract[0];
+        if first_chunk.entry_type == "directory" {
+            let dir_path = args.output.join(&first_chunk.path);
+            fs::create_dir_all(&dir_path)?;
+            println!("Successfully created directory: {}", dir_path.display());
+            return Ok(());
+        }
+
+        let read_key = if header.encryption_mode > 0 {
+            let pass = args.password.as_deref().ok_or_else(|| anyhow!("Password is required for this encrypted archive."))?;
+            Some(helpers::derive_key(pass, &header.read_salt, header.kdf_iterations))
+        } else { None };
+        
+        let mut data_blocks_cache: HashMap<u32, Vec<u8>> = HashMap::new();
+        
+        reader::extract_file_from_chunks(
+            &args.archive_path, &args.output, &chunks_to_extract, &header, read_key, &mut data_blocks_cache,
+        )?;
+
+        println!("\nSuccessfully extracted '{}'.", args.file_in_archive);
+        Ok(())
+    }
+
+    fn format_size(bytes: u64, unit: &str) -> String {
+        let size = bytes as f64;
+        match unit.to_uppercase().as_str() {
+            "TB" => format!("{:.2} TB", size / 1024.0_f64.powi(4)),
+            "GB" => format!("{:.2} GB", size / 1024.0_f64.powi(3)),
+            "MB" => format!("{:.2} MB", size / 1024.0_f64.powi(2)),
+            "KB" => format!("{:.2} KB", size / 1024.0),
+            _ => format!("{} B", size),
+        }
+    }
+
+    fn format_permissions(mode: u16) -> String {
+        #[cfg(unix)]
+        {
+            let user_r = if (mode & 0o400) != 0 { 'r' } else { '-' };
+            let user_w = if (mode & 0o200) != 0 { 'w' } else { '-' };
+            let user_x = if (mode & 0o100) != 0 { 'x' } else { '-' };
+            let group_r = if (mode & 0o040) != 0 { 'r' } else { '-' };
+            let group_w = if (mode & 0o020) != 0 { 'w' } else { '-' };
+            let group_x = if (mode & 0o010) != 0 { 'x' } else { '-' };
+            let other_r = if (mode & 0o004) != 0 { 'r' } else { '-' };
+            let other_w = if (mode & 0o002) != 0 { 'w' } else { '-' };
+            let other_x = if (mode & 0o001) != 0 { 'x' } else { '-' };
+            format!("{}{}{}{}{}{}{}{}{}", user_r, user_w, user_x, group_r, group_w, group_x, other_r, other_w, other_x)
+        }
+        #[cfg(not(unix))]
+        {
+            format!("0o{:o}", mode)
+        }
+    }
+}
+
 
 // ===================================================================================
-// 5. MAIN PROGRAM (CLI DEFINITION AND DISPATCH)
+// 6. MAIN PROGRAM (CLI DEFINITION AND DISPATCH)
 // ===================================================================================
 
 #[derive(Parser, Debug)]
@@ -858,12 +1067,52 @@ mod reader {
     about = "G3FC Archiver Tool - Rust Version",
     long_about = "Creates and extracts G3FC archives with options for compression, encryption, and splitting.",
     help_template = "\
-{before-help}{name} {version}
+{name} {version}
 {about-with-newline}
 {usage-heading} {usage}
 
-{all-args}
-{after-help}
+Commands:
+{subcommands-with-newline}
+--- Options for 'create' ---
+  Usage: create -o <path> [options] [input_paths...]
+  -o, --output <path>         Required. Path for the output .g3fc file.
+  -p, --password <password>   Optional. Encrypt the archive with a password.
+  -cl, --compression-level    Optional. ZSTD level (1-22). Default: 6.
+  -gc, --global-compression   Optional. Use global compression. Default: false.
+  -fl, --fec-level <%>        Optional. Forward Error Correction level (0-50).
+  --split <size>              Optional. Split data into blocks of specified size (e.g., 100MB, 2GB).
+
+--- Options for 'extract' ---
+  Usage: extract <archive_path> -o <dir_path> [options]
+  -o, --output <dir_path>     Required. Destination directory for extracted files.
+  -p, --password <password>   Optional. Password for encrypted archives.
+
+--- Options for 'list' ---
+  Usage: list <archive_path> [options]
+  -p, --password <password>   Optional. Password for encrypted archives.
+  --details                   Optional. Show detailed info (permissions, timestamp, checksum).
+  --unit <B|KB|MB|GB|TB>      Optional. Unit for file sizes. Default: KB.
+
+--- Options for 'info' ---
+  Usage: info <archive_path> -o <json_path> [options]
+  -o, --output <json_path>    Required. Path to save the output JSON file.
+  -p, --password <password>   Optional. Password for encrypted archives.
+
+--- Options for 'find' ---
+  Usage: find <archive_path> <pattern> [options]
+  -p, --password <password>   Optional. Password for encrypted archives.
+  --regex                     Optional. Treat the pattern as a regular expression.
+  --unit <B|KB|MB|GB|TB>      Optional. Unit for file sizes. Default: KB.
+  
+--- Options for 'extract-single' ---
+  Usage: extract-single <archive_path> <file_in_archive> -o <dir_path> [options]
+  -o, --output <dir_path>     Required. Destination directory.
+  -p, --password <password>   Optional. Password for encrypted archives.
+
+Examples:
+  g3fc-rust.exe create -o my_archive.g3fc -p mypassword C:\\Users\\user\\Documents
+  g3fc-rust.exe list my_archive.g3fc --details
+  g3fc-rust.exe extract-single my_archive.g3fc \"documents/report.docx\" -o C:\\extracted_files
 "
 )]
 struct Cli {
@@ -877,9 +1126,25 @@ enum Commands {
     #[command(alias = "c", long_about = "Bundles files and folders into a .g3fc archive.")]
     Create(CreateArgs),
     
-    /// Extract files from a G3FC archive.
+    /// Extract all files from a G3FC archive.
     #[command(alias = "x", long_about = "Extracts the contents of a .g3fc archive to a destination directory.")]
     Extract(ExtractArgs),
+
+    /// List files and directories in an archive.
+    #[command(alias = "l", long_about = "Lists the contents of a .g3fc archive.")]
+    List(ListArgs),
+
+    /// Find a file within an archive by name or regex.
+    #[command(alias = "f", long_about = "Searches for files inside a container by name pattern or regex.")]
+    Find(FindArgs),
+
+    /// Export the archive's file metadata to a JSON file.
+    #[command(alias = "i", long_about = "Exports the container's metadata index to a JSON file.")]
+    Info(InfoArgs),
+
+    /// Extract a single file or directory from an archive.
+    #[command(alias = "xs", long_about = "Extracts a single item (file or directory) by its exact path.")]
+    ExtractSingle(ExtractSingleArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -888,27 +1153,27 @@ struct CreateArgs {
     #[arg(required = true)]
     input_paths: Vec<PathBuf>,
 
-    /// Path for the output .g3fc file.
+    /// [Required] Path for the output .g3fc file.
     #[arg(short, long, required = true)]
     output: PathBuf,
 
-    /// Encrypt the archive with the specified password.
+    /// [Optional] Encrypt the archive with the specified password.
     #[arg(short, long)]
     password: Option<String>,
 
-    /// ZSTD compression level (1-22). Higher is smaller but slower.
-    #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u8).range(1..=22))]
+    /// [Optional] ZSTD compression level (1-22). Default: 6.
+    #[arg(long, default_value_t = 6, value_parser = clap::value_parser!(u8).range(1..=22))]
     compression_level: u8,
     
-    /// Apply compression to the entire data block at once.
+    /// [Optional] Apply compression to the entire data block at once.
     #[arg(long)]
     global_compression: bool,
     
-    /// Forward Error Correction level (0-50). Creates recovery data.
+    /// [Optional] Forward Error Correction level (0-50).
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=50))]
     fec_level: u8,
     
-    /// Split the archive data into multiple files of a max size (e.g., 100MB, 2GB).
+    /// [Optional] Split archive data into multiple blocks of a max size (e.g., 100MB, 2GB).
     #[arg(long)]
     split: Option<String>,
 }
@@ -919,27 +1184,125 @@ struct ExtractArgs {
     #[arg(required = true)]
     archive_path: PathBuf,
     
-    /// Destination directory for extracted files.
+    /// [Required] Destination directory for extracted files.
     #[arg(short, long, required = true)]
-    output_dir: PathBuf,
+    output: PathBuf,
     
-    /// The password for an encrypted archive.
+    /// [Optional] The password for an encrypted archive.
     #[arg(short, long)]
     password: Option<String>,
 }
+
+#[derive(Parser, Debug)]
+struct ListArgs {
+    /// The .g3fc file to list.
+    #[arg(required = true)]
+    archive_path: PathBuf,
+
+    /// [Optional] The password for an encrypted archive.
+    #[arg(short, long)]
+    password: Option<String>,
+
+    /// [Optional] Show detailed info (permissions, timestamp, checksum).
+    #[arg(long)]
+    details: bool,
+
+    /// [Optional] Unit for file sizes (B, KB, MB, GB, TB). Default: KB.
+    #[arg(long, default_value = "KB")]
+    unit: String,
+}
+
+#[derive(Parser, Debug)]
+struct InfoArgs {
+    /// The .g3fc file to get info from.
+    #[arg(required = true)]
+    archive_path: PathBuf,
+
+    /// [Required] Path to save the output JSON file.
+    #[arg(short, long, required = true)]
+    output: PathBuf,
+
+    /// [Optional] The password for an encrypted archive.
+    #[arg(short, long)]
+    password: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+struct FindArgs {
+    /// The .g3fc archive to search in.
+    #[arg(required = true)]
+    archive_path: PathBuf,
+
+    /// The text pattern or regex to search for in file paths.
+    #[arg(required = true)]
+    pattern: String,
+
+    /// [Optional] The password for an encrypted archive.
+    #[arg(short, long)]
+    password: Option<String>,
+
+    /// [Optional] Treat the pattern as a regular expression.
+    #[arg(long)]
+    regex: bool,
+
+    /// [Optional] Unit for file sizes (B, KB, MB, GB, TB). Default: KB.
+    #[arg(long, default_value = "KB")]
+    unit: String,
+}
+
+#[derive(Parser, Debug)]
+struct ExtractSingleArgs {
+    /// The .g3fc archive to extract from.
+    #[arg(required = true)]
+    archive_path: PathBuf,
+
+    /// The exact path of the file/directory to extract from within the archive.
+    #[arg(required = true)]
+    file_in_archive: String,
+    
+    /// [Required] Destination directory for the extracted item.
+    #[arg(short, long, required = true)]
+    output: PathBuf,
+    
+    /// [Optional] The password for an encrypted archive.
+    #[arg(short, long)]
+    password: Option<String>,
+}
+
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Create(args) => {
+            if let Some(parent) = args.output.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("Failed to create output directory '{}'", parent.display()))?;
+            }
             writer::create_archive(&args)?
         }
         Commands::Extract(args) => {
-            // CORRECTED: Ensure the output directory exists before starting extraction.
-            fs::create_dir_all(&args.output_dir)
-                .with_context(|| format!("Failed to create output directory '{}'", args.output_dir.display()))?;
+            fs::create_dir_all(&args.output)
+                .with_context(|| format!("Failed to create output directory '{}'", args.output.display()))?;
             reader::extract_archive(&args)?
+        }
+        Commands::List(args) => {
+            commands::list_files_in_container(&args)?
+        }
+        Commands::Info(args) => {
+            if let Some(parent) = args.output.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("Failed to create output directory '{}'", parent.display()))?;
+            }
+            commands::export_info(&args)?
+        }
+        Commands::Find(args) => {
+            commands::find_files_in_container(&args)?
+        }
+        Commands::ExtractSingle(args) => {
+            fs::create_dir_all(&args.output)
+                .with_context(|| format!("Failed to create output directory '{}'", args.output.display()))?;
+            commands::extract_single_file(&args)?
         }
     }
     
