@@ -3,7 +3,7 @@
 //
 // @author  Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>
 // @license GNU General Public License v2.0
-// @version 1.0.10
+// @version 1.1.3
 //
 // Copyright 2025, Lucas Guimarães - G3Pix Ltda <https://g3pix.com.br>
 //
@@ -50,6 +50,7 @@
 //    PM> Install-Package ZstdSharp.Port
 // 2. Witteborn.ReedSolomon - For Forward Error Correction (FEC)
 //    PM> Install-Package Witteborn.ReedSolomon
+// 3. System.Text.Json - For JSON operations (usually included in .NET SDK)
 // ===================================================================================
 
 using System;
@@ -60,8 +61,10 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Witteborn.ReedSolomon; // Correct using statement for the new library
+using Witteborn.ReedSolomon;
 
 namespace G3FC
 {
@@ -73,7 +76,7 @@ namespace G3FC
         public const int HeaderSize = 331;
         public const int FooterSize = 40;
         public const string CreatingSystem = "G3Pix C# G3FC Archiver";
-        public const string SoftwareVersion = "1.0.10"; // Version updated
+        public const string SoftwareVersion = "1.1.3";
         public const int MaxFECLibShards = 255;
         public const int MinFECShards = 1;
         public const int MaxFECShards = 254;
@@ -144,18 +147,15 @@ namespace G3FC
         public byte Compression { get; set; }
         public uint Checksum { get; set; }
         public uint BlockFileIndex { get; set; }
-
-        // Fields for chunking large files
-        public byte[] ChunkGroupId { get; set; } // Shared ID for all chunks of a file
-        public uint ChunkIndex { get; set; }     // 0, 1, 2...
-        public uint TotalChunks { get; set; }    // Total number of chunks for the file
-
+        public byte[] ChunkGroupId { get; set; }
+        public uint ChunkIndex { get; set; }
+        public uint TotalChunks { get; set; }
         public Dictionary<string, object> CustomMetadata { get; set; }
     }
 
     public class Config
     {
-        public int CompressionLevel { get; set; } = 3;
+        public int CompressionLevel { get; set; } = 6;
         public bool GlobalCompression { get; set; } = false;
         public byte EncryptionMode { get; set; } = 0;
         public string ReadPassword { get; set; } = "";
@@ -163,7 +163,7 @@ namespace G3FC
         public uint KDFIterations { get; set; } = 100000;
         public byte FECScheme { get; set; } = 0;
         public byte FECLevel { get; set; } = 0;
-        public long SplitSize { get; set; } = 0; // In bytes. 0 means no splitting.
+        public long SplitSize { get; set; } = 0;
     }
     #endregion
 
@@ -368,7 +368,6 @@ namespace G3FC
                 }
             }
 
-            // Write the last remaining block
             if (currentBlockStream.Length > 0)
             {
                 WriteDataBlock(outputFilePath, blockIndex, currentBlockStream.ToArray(), config, readKey);
@@ -517,7 +516,7 @@ namespace G3FC
 
             return G3FCHelpers.DeserializeIndex(indexBlockBytes);
         }
-       
+
         public static void ExtractFileFromChunks(string archivePath, List<FileEntry> chunks, string destDir, string readPassword)
         {
             if (chunks == null || chunks.Count == 0) return;
@@ -528,7 +527,6 @@ namespace G3FC
             var headerBytes = G3FCHelpers.ReadBytes(new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read), 0, Constants.HeaderSize);
             var header = G3FCHelpers.BytesToStruct<MainHeader>(headerBytes);
 
-            // Reassemble the file from its chunks
             using var reassembledStream = new MemoryStream();
             foreach (var chunk in chunks.OrderBy(c => c.ChunkIndex))
             {
@@ -541,7 +539,7 @@ namespace G3FC
                     if (!File.Exists(blockPath)) throw new FileNotFoundException($"Data block not found: {blockPath}");
                     dataBlock = File.ReadAllBytes(blockPath);
                 }
-                else // This case is for single-file archives
+                else
                 {
                     long dataBlockStart = (long)header.FileIndexOffset + (long)header.FileIndexLength;
                     long dataBlockEnd = (long)header.FECDataOffset;
@@ -572,14 +570,9 @@ namespace G3FC
             }
 
             byte[] finalData = reassembledStream.ToArray();
-
-            //First chunk uncompressed size
             ulong uncompressedSize = firstChunk.UncompressedSize;
+            const long MAX_UNCOMPRESSED_SIZE_SAFE_LIMIT = 4L * 1024 * 1024 * 1024;
 
-            //Safe limit of 4gb.
-            const long MAX_UNCOMPRESSED_SIZE_SAFE_LIMIT = 4L * 1024 * 1024 * 1024; // 4 GB
-
-            //Checks disk space
             try
             {
                 DriveInfo driveInfo = new DriveInfo(Path.GetPathRoot(destDir));
@@ -594,8 +587,6 @@ namespace G3FC
                 Console.WriteLine($"Warning: Could not check disk space. {ex.Message}");
             }
 
-
-            // 3. Check if uncompressedSize against safe limit
             if (uncompressedSize > (ulong)MAX_UNCOMPRESSED_SIZE_SAFE_LIMIT)
             {
                 Console.WriteLine($"\nWARNING: The file '{firstChunk.Path}' has a very large uncompressed size: {uncompressedSize / 1024.0 / 1024.0:F2} MB.");
@@ -609,7 +600,6 @@ namespace G3FC
                 }
             }
 
-
             if (header.GlobalCompression == 0 && firstChunk.Compression == 1)
             {
                 using var decompressor = new ZstdSharp.Decompressor();
@@ -621,16 +611,14 @@ namespace G3FC
                 throw new Exception($"Checksum mismatch for file {firstChunk.OriginalFilename}");
             }
 
-            //Check the full path
-            string destinationDirectoryFullPath = Path.GetFullPath(destDir);
-            string destinationFileFullPath = Path.GetFullPath(Path.Combine(destinationDirectoryFullPath, firstChunk.Path.TrimStart('/')));
+            // CORRECTION: Robust path traversal check
+            string normalizedDestDir = Path.GetFullPath(destDir);
+            string destinationFileFullPath = Path.GetFullPath(Path.Combine(normalizedDestDir, firstChunk.Path));
 
-            //Validate path
-            if (!destinationFileFullPath.StartsWith(destinationDirectoryFullPath + Path.DirectorySeparatorChar))
+            if (!destinationFileFullPath.StartsWith(normalizedDestDir + Path.DirectorySeparatorChar) && destinationFileFullPath != normalizedDestDir)
             {
-                //Wrong path
                 Console.WriteLine($"Error: Malicious path detected (Path Traversal attempt). Skipping file: {firstChunk.Path}");
-                return; // Skip file
+                return;
             }
 
             string destPath = destinationFileFullPath;
@@ -642,7 +630,201 @@ namespace G3FC
     }
     #endregion
 
-    #region 4. Helper Methods
+    #region 4. G3FC Commands (New Functionality)
+    public static class G3FCCommands
+    {
+        // DTO for clean JSON serialization in ExportInfo
+        private class FileEntryJsonExport
+        {
+            public string Path { get; set; }
+            public string Type { get; set; }
+            public string UUID { get; set; }
+            public string CreationTime { get; set; }
+            public string ModificationTime { get; set; }
+            public string Permissions { get; set; }
+            public byte Status { get; set; }
+            public string OriginalFilename { get; set; }
+            public ulong UncompressedSize { get; set; }
+            public uint Checksum { get; set; }
+            public uint BlockFileIndex { get; set; }
+            public string ChunkGroupId { get; set; }
+            public uint ChunkIndex { get; set; }
+            public uint TotalChunks { get; set; }
+        }
+
+        public static void ListFilesInContainer(string archivePath, string password, string sizeUnit = "KB", bool showDetails = false)
+        {
+            try
+            {
+                Console.WriteLine($"Listing contents of: {archivePath}\n");
+                var fileIndex = G3FCReader.ReadFileIndex(archivePath, password);
+
+                var fileGroups = fileIndex
+                    .GroupBy(entry => entry.Path)
+                    .Select(group => group.First())
+                    .OrderBy(entry => entry.Path)
+                    .ToList();
+
+                Console.WriteLine($"{"Path",-60} {"Size",-15} {"Type",-12}" + (showDetails ? "Permissions  Creation Time            Checksum" : ""));
+                Console.WriteLine(new string('-', 120));
+
+                foreach (var entry in fileGroups)
+                {
+                    string formattedSize = FormatSize(entry.UncompressedSize, sizeUnit);
+                    Console.Write($"{entry.Path,-60} {formattedSize,-15} {entry.Type,-12}");
+                    if (showDetails)
+                    {
+                        long correctedTicks = CorrectTimestampIfNeeded(entry.CreationTime);
+                        var creationTime = new DateTime(correctedTicks, DateTimeKind.Utc).ToLocalTime();
+                        string permissions = PermissionsHelper.FormatPermissions(entry.Permissions);
+                        Console.Write($" {permissions,-12} {creationTime:yyyy-MM-dd HH:mm:ss}  {entry.Checksum:X8}");
+                    }
+                    Console.WriteLine();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error listing files: {ex.Message}");
+            }
+        }
+
+        public static void ExportInfo(string archivePath, string password, string outputJsonPath)
+        {
+            try
+            {
+                var fileIndex = G3FCReader.ReadFileIndex(archivePath, password);
+
+                var exportList = fileIndex.Select(entry => new FileEntryJsonExport
+                {
+                    Path = entry.Path,
+                    Type = entry.Type,
+                    UUID = new Guid(entry.UUID).ToString(),
+                    CreationTime = new DateTime(CorrectTimestampIfNeeded(entry.CreationTime), DateTimeKind.Utc).ToString("o"),
+                    ModificationTime = new DateTime(CorrectTimestampIfNeeded(entry.ModificationTime), DateTimeKind.Utc).ToString("o"),
+                    Permissions = $"0o{Convert.ToString(entry.Permissions, 8)}",
+                    Status = entry.Status,
+                    OriginalFilename = entry.OriginalFilename,
+                    UncompressedSize = entry.UncompressedSize,
+                    Checksum = entry.Checksum,
+                    BlockFileIndex = entry.BlockFileIndex,
+                    ChunkGroupId = entry.ChunkGroupId != null && entry.ChunkGroupId.Length == 16 ? new Guid(entry.ChunkGroupId).ToString() : "N/A",
+                    ChunkIndex = entry.ChunkIndex,
+                    TotalChunks = entry.TotalChunks
+                }).ToList();
+
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                string jsonString = JsonSerializer.Serialize(exportList, options);
+                File.WriteAllText(outputJsonPath, jsonString);
+                Console.WriteLine($"File index successfully exported to {outputJsonPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error exporting file info: {ex.Message}");
+            }
+        }
+
+        public static void FindFilesInContainer(string archivePath, string password, string pattern, bool useRegex, string sizeUnit = "KB")
+        {
+            try
+            {
+                var fileIndex = G3FCReader.ReadFileIndex(archivePath, password);
+                var fileGroups = fileIndex.GroupBy(entry => entry.Path).Select(g => g.First());
+
+                IEnumerable<FileEntry> foundFiles;
+
+                if (useRegex)
+                {
+                    var regex = new Regex(pattern, RegexOptions.IgnoreCase);
+                    foundFiles = fileGroups.Where(entry => regex.IsMatch(entry.Path));
+                }
+                else
+                {
+                    foundFiles = fileGroups.Where(entry => entry.Path.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+                }
+
+                Console.WriteLine($"\nFound {foundFiles.Count()} matching entries for pattern '{pattern}':");
+                Console.WriteLine($"{"Path",-60} {"Size",-15} {"Creation Time"}");
+                Console.WriteLine(new string('-', 100));
+
+                foreach (var entry in foundFiles)
+                {
+                    string formattedSize = FormatSize(entry.UncompressedSize, sizeUnit);
+                    long correctedTicks = CorrectTimestampIfNeeded(entry.CreationTime);
+                    var creationTime = new DateTime(correctedTicks, DateTimeKind.Utc).ToLocalTime();
+                    Console.WriteLine($"{entry.Path,-60} {formattedSize,-15} {creationTime:yyyy-MM-dd HH:mm:ss}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error finding files: {ex.Message}");
+            }
+        }
+
+        public static void ExtractSingleFile(string archivePath, string password, string filePathInArchive, string destinationDir)
+        {
+            try
+            {
+                Console.WriteLine($"Attempting to extract '{filePathInArchive}' to '{destinationDir}'...");
+                var fileIndex = G3FCReader.ReadFileIndex(archivePath, password);
+
+                var chunksToExtract = fileIndex
+                    .Where(entry => entry.Path.Equals(filePathInArchive, StringComparison.Ordinal))
+                    .OrderBy(entry => entry.ChunkIndex)
+                    .ToList();
+
+                if (chunksToExtract.Count == 0)
+                {
+                    Console.WriteLine($"Error: File '{filePathInArchive}' not found in the archive.");
+                    return;
+                }
+
+                var firstChunk = chunksToExtract.First();
+                if (firstChunk.Type == "directory")
+                {
+                    string destPath = Path.Combine(destinationDir, firstChunk.Path);
+                    Directory.CreateDirectory(destPath);
+                    Console.WriteLine($"Successfully created directory: {destPath}");
+                    return;
+                }
+
+                G3FCReader.ExtractFileFromChunks(archivePath, chunksToExtract, destinationDir, password);
+
+                Console.WriteLine($"\nSuccessfully extracted '{filePathInArchive}'.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error extracting single file: {ex.Message}");
+            }
+        }
+
+        private static string FormatSize(ulong bytes, string unit)
+        {
+            double size = bytes;
+            switch (unit.ToUpper())
+            {
+                case "TB": return $"{size / (1024.0 * 1024.0 * 1024.0 * 1024.0):F2} TB";
+                case "GB": return $"{size / (1024.0 * 1024.0 * 1024.0):F2} GB";
+                case "MB": return $"{size / (1024.0 * 1024.0):F2} MB";
+                case "KB": return $"{size / 1024.0:F2} KB";
+                default: return $"{size} B";
+            }
+        }
+
+        private static long CorrectTimestampIfNeeded(long ticks)
+        {
+            if (ticks > 3000000000000000000L)
+            {
+                const long dotNetEpochAsTicks = 621355968000000000L;
+                long nanosecondsSinceEpoch = ticks;
+                long ticksSinceEpoch = nanosecondsSinceEpoch / 100;
+                return ticksSinceEpoch + dotNetEpochAsTicks;
+            }
+            return ticks;
+        }
+    }
+    #endregion
+
+    #region 5. Helper Methods
     internal static class Crc32
     {
         private static readonly uint[] table = new uint[256];
@@ -722,14 +904,14 @@ namespace G3FC
             try
             {
                 using var aes = new AesGcm(key);
-            int nonceSize = AesGcm.NonceByteSizes.MaxSize;
-            int tagSize = AesGcm.TagByteSizes.MaxSize;
-            var nonce = ciphertext.Take(nonceSize).ToArray();
-            var tag = ciphertext.Skip(nonceSize).Take(tagSize).ToArray();
-            var encryptedData = ciphertext.Skip(nonceSize + tagSize).ToArray();
-            var plaintext = new byte[encryptedData.Length];
-            aes.Decrypt(nonce, encryptedData, tag, plaintext);
-            return plaintext;
+                int nonceSize = AesGcm.NonceByteSizes.MaxSize;
+                int tagSize = AesGcm.TagByteSizes.MaxSize;
+                var nonce = ciphertext.Take(nonceSize).ToArray();
+                var tag = ciphertext.Skip(nonceSize).Take(tagSize).ToArray();
+                var encryptedData = ciphertext.Skip(nonceSize + tagSize).ToArray();
+                var plaintext = new byte[encryptedData.Length];
+                aes.Decrypt(nonce, encryptedData, tag, plaintext);
+                return plaintext;
             }
             catch (System.Security.Cryptography.CryptographicException)
             {
@@ -740,21 +922,16 @@ namespace G3FC
         public static byte[] CreateFEC(byte[] data, byte fecLevel)
         {
             if (data.Length == 0) return new byte[0];
-
             int parityShardsCount = (fecLevel * (Constants.MaxFECLibShards - 1)) / 100;
             if (parityShardsCount < Constants.MinFECShards) parityShardsCount = Constants.MinFECShards;
             if (parityShardsCount > Constants.MaxFECShards) parityShardsCount = Constants.MaxFECShards;
-
             int dataShardsCount = Constants.MaxFECLibShards - parityShardsCount;
             if (dataShardsCount <= 0) dataShardsCount = 1;
-
             var codec = new ReedSolomon(dataShardsCount, parityShardsCount);
-
             int shardSize = (data.Length + dataShardsCount - 1) / dataShardsCount;
             int paddedLength = shardSize * dataShardsCount;
             var paddedData = new byte[paddedLength];
             data.CopyTo(paddedData, 0);
-
             var shards = new byte[dataShardsCount + parityShardsCount][];
             for (int i = 0; i < dataShardsCount + parityShardsCount; i++)
             {
@@ -764,9 +941,7 @@ namespace G3FC
             {
                 Array.Copy(paddedData, i * shardSize, shards[i], 0, shardSize);
             }
-
             codec.EncodeParity(shards, 0, shardSize);
-
             var parityBytes = new MemoryStream();
             for (int i = dataShardsCount; i < dataShardsCount + parityShardsCount; i++)
             {
@@ -860,7 +1035,6 @@ namespace G3FC
             public ulong st_dev;
             public ulong st_ino;
             public uint st_mode;
-            // ... other fields are not needed for permissions
         }
 #endif
 
@@ -869,7 +1043,9 @@ namespace G3FC
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 var fileInfo = new FileInfo(path);
-                return fileInfo.IsReadOnly ? (ushort)0444 : (ushort)0666;
+                // CORRECTION: Use explicit conversion from octal string to avoid ambiguity.
+                // "666" (octal) is for read/write, "444" (octal) is for read-only.
+                return fileInfo.IsReadOnly ? (ushort)Convert.ToInt32("444", 8) : (ushort)Convert.ToInt32("666", 8);
             }
 #if NETCOREAPP
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
@@ -880,7 +1056,7 @@ namespace G3FC
                 }
             }
 #endif
-            return 0644; // Default fallback
+            return 0644;
         }
 
         public static void SetPermissions(string path, ushort permissions)
@@ -890,7 +1066,7 @@ namespace G3FC
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
                     var fileInfo = new FileInfo(path);
-                    bool isReadOnly = (permissions & 0200) == 0;
+                    bool isReadOnly = (permissions & Convert.ToInt32("222", 8)) == 0;
                     fileInfo.IsReadOnly = isReadOnly;
                 }
 #if NETCOREAPP
@@ -905,10 +1081,28 @@ namespace G3FC
                 Console.WriteLine($"Warning: Could not set permissions for {path}. {ex.Message}");
             }
         }
+
+        public static string FormatPermissions(ushort perms)
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                var r = (perms & 0b100_000_000) != 0 ? 'r' : '-';
+                var w = (perms & 0b010_000_000) != 0 ? 'w' : '-';
+                var x = (perms & 0b001_000_000) != 0 ? 'x' : '-';
+                var gr = (perms & 0b000_100_000) != 0 ? 'r' : '-';
+                var gw = (perms & 0b000_010_000) != 0 ? 'w' : '-';
+                var gx = (perms & 0b000_001_000) != 0 ? 'x' : '-';
+                var or = (perms & 0b000_000_100) != 0 ? 'r' : '-';
+                var ow = (perms & 0b000_000_010) != 0 ? 'w' : '-';
+                var ox = (perms & 0b000_000_001) != 0 ? 'x' : '-';
+                return $"rwx{r}{w}{x}{gr}{gw}{gx}{or}{ow}{ox}";
+            }
+            return $"0o{Convert.ToString(perms, 8)}";
+        }
     }
     #endregion
 
-    #region 5. Main Program (Console Application)
+    #region 6. Main Program (Console Application)
     class Program
     {
         static void Main(string[] args)
@@ -932,6 +1126,22 @@ namespace G3FC
                     case "x":
                         HandleExtractCommand(args.Skip(1).ToArray());
                         break;
+                    case "list":
+                    case "l":
+                        HandleListCommand(args.Skip(1).ToArray());
+                        break;
+                    case "info":
+                    case "i":
+                        HandleInfoCommand(args.Skip(1).ToArray());
+                        break;
+                    case "find":
+                    case "f":
+                        HandleFindCommand(args.Skip(1).ToArray());
+                        break;
+                    case "extract-single":
+                    case "xs":
+                        HandleExtractSingleCommand(args.Skip(1).ToArray());
+                        break;
                     default:
                         Console.WriteLine($"Error: Unknown command '{command}'. Use --help for usage.");
                         break;
@@ -941,35 +1151,85 @@ namespace G3FC
             {
                 Console.WriteLine($"\nAn unexpected error occurred: {ex.Message}");
 #if DEBUG
-                //Shows stacktrace only if in debug mode
                 Console.WriteLine(ex.StackTrace);
 #endif
-
             }
         }
 
         static void ShowHelp()
         {
             Console.WriteLine("G3FC Archiver Tool");
-            Console.WriteLine("Usage: G3FC.exe <command> [options] [paths...]");
+            Console.WriteLine("Usage: G3FC.exe <command> [options] [arguments...]");
             Console.WriteLine("\nCommands:");
-            Console.WriteLine("  create, c      Create a new G3FC archive.");
-            Console.WriteLine("  extract, x     Extract files from a G3FC archive.");
-            Console.WriteLine("\nOptions for 'create':");
+            Console.WriteLine("  create, c         Create a new G3FC archive.");
+            Console.WriteLine("  extract, x        Extract all files from a G3FC archive.");
+            Console.WriteLine("  list, l           List files and directories in an archive.");
+            Console.WriteLine("  find, f           Find a file within an archive by name or regex.");
+            Console.WriteLine("  info, i           Export the archive's file metadata to a JSON file.");
+            Console.WriteLine("  extract-single, xs Extract a single file or directory from an archive.");
+
+            Console.WriteLine("\n--- Options for 'create' ---");
+            Console.WriteLine("  Usage: create -o <path> [options] [input_paths...]");
             Console.WriteLine("  -o, --output <path>         Required. Path for the output .g3fc file.");
             Console.WriteLine("  -p, --password <password>   Optional. Encrypt the archive with a password.");
-            Console.WriteLine("  -cl, --compression-level    Optional. ZSTD level (1-22). Default: 3.");
+            Console.WriteLine("  -cl, --compression-level    Optional. ZSTD level (1-22). Default: 6.");
             Console.WriteLine("  -gc, --global-compression   Optional. Use global compression. Default: false.");
             Console.WriteLine("  -fl, --fec-level <%>        Optional. Forward Error Correction level (0-50).");
             Console.WriteLine("  --split <size>              Optional. Split data into blocks of specified size (e.g., 100MB, 2GB).");
-            Console.WriteLine("  [paths...]                  Required. One or more files or folders to add.");
-            Console.WriteLine("\nOptions for 'extract':");
-            Console.WriteLine("  <archive_path>              Required. The .g3fc file to extract.");
+
+            Console.WriteLine("\n--- Options for 'extract' ---");
+            Console.WriteLine("  Usage: extract <archive_path> -o <dir_path> [options]");
             Console.WriteLine("  -o, --output <dir_path>     Optional. Destination directory. Prompts if not set.");
             Console.WriteLine("  -p, --password <password>   Optional. Password for encrypted archives.");
+
+            Console.WriteLine("\n--- Options for 'list' ---");
+            Console.WriteLine("  Usage: list <archive_path> [options]");
+            Console.WriteLine("  -p, --password <password>   Optional. Password for encrypted archives.");
+            Console.WriteLine("  --details                   Optional. Show detailed info (permissions, timestamp, checksum).");
+            Console.WriteLine("  --unit <B|KB|MB|GB|TB>      Optional. Unit for file sizes. Default: KB.");
+
+            Console.WriteLine("\n--- Options for 'info' ---");
+            Console.WriteLine("  Usage: info <archive_path> -o <json_path> [options]");
+            Console.WriteLine("  -o, --output <json_path>    Required. Path to save the output JSON file.");
+            Console.WriteLine("  -p, --password <password>   Optional. Password for encrypted archives.");
+
+            Console.WriteLine("\n--- Options for 'find' ---");
+            Console.WriteLine("  Usage: find <archive_path> <pattern> [options]");
+            Console.WriteLine("  -p, --password <password>   Optional. Password for encrypted archives.");
+            Console.WriteLine("  --regex                     Optional. Treat the pattern as a regular expression.");
+            Console.WriteLine("  --unit <B|KB|MB|GB|TB>      Optional. Unit for file sizes. Default: KB.");
+
+            Console.WriteLine("\n--- Options for 'extract-single' ---");
+            Console.WriteLine("  Usage: extract-single <archive_path> <file_in_archive> -o <dir_path> [options]");
+            Console.WriteLine("  -o, --output <dir_path>     Required. Destination directory.");
+            Console.WriteLine("  -p, --password <password>   Optional. Password for encrypted archives.");
+
             Console.WriteLine("\nExamples:");
             Console.WriteLine("  G3FC.exe create -o myarchive.g3fc -p mypass --split 500MB C:\\docs\\file.txt C:\\photos");
-            Console.WriteLine("  G3FC.exe extract myarchive.g3fc -o C:\\extracted_files -p mypass");
+            Console.WriteLine("  G3FC.exe list myarchive.g3fc --details --unit MB");
+            Console.WriteLine("  G3FC.exe find myarchive.g3fc \"\\.txt$\" --regex");
+            Console.WriteLine("  G3FC.exe extract-single myarchive.g3fc \"documents/report.docx\" -o C:\\extracted_files");
+        }
+
+        static string GetPasswordFromUser()
+        {
+            Console.Write("Password required. Enter password: ");
+            string password = "";
+            while (true)
+            {
+                var key = Console.ReadKey(true);
+                if (key.Key == ConsoleKey.Enter) break;
+                if (key.Key == ConsoleKey.Backspace && password.Length > 0)
+                {
+                    password = password.Substring(0, password.Length - 1);
+                }
+                else if (!char.IsControl(key.KeyChar))
+                {
+                    password += key.KeyChar;
+                }
+            }
+            Console.WriteLine();
+            return password;
         }
 
         static void HandleCreateCommand(string[] args)
@@ -982,42 +1242,27 @@ namespace G3FC
             {
                 switch (args[i])
                 {
-                    case "-o":
-                    case "--output":
-                        outputPath = args[++i];
-                        break;
-                    case "-p":
-                    case "--password":
-                        config.ReadPassword = args[++i];
-                        config.EncryptionMode = 1;
-                        break;
-                    case "-cl":
-                    case "--compression-level":
-                        config.CompressionLevel = int.Parse(args[++i]);
-                        break;
-                    case "-gc":
-                    case "--global-compression":
-                        config.GlobalCompression = true;
-                        break;
-                    case "-fl":
-                    case "--fec-level":
-                        config.FECScheme = 1;
-                        config.FECLevel = byte.Parse(args[++i]);
-                        break;
-                    case "--split":
-                        config.SplitSize = ParseSize(args[++i]);
-                        break;
-                    default:
-                        inputPaths.Add(args[i]);
-                        break;
+                    case "-o": case "--output": outputPath = args[++i]; break;
+                    case "-p": case "--password": config.ReadPassword = args[++i]; config.EncryptionMode = 1; break;
+                    case "-cl": case "--compression-level": config.CompressionLevel = int.Parse(args[++i]); break;
+                    case "-gc": case "--global-compression": config.GlobalCompression = true; break;
+                    case "-fl": case "--fec-level": config.FECScheme = 1; config.FECLevel = byte.Parse(args[++i]); break;
+                    case "--split": config.SplitSize = ParseSize(args[++i]); break;
+                    default: inputPaths.Add(args[i]); break;
                 }
             }
 
             if (string.IsNullOrEmpty(outputPath) || inputPaths.Count == 0)
             {
                 Console.WriteLine("Error: Output path and at least one input path are required for 'create'.");
-                ShowHelp();
                 return;
+            }
+
+            // CORRECTION: Ensure output directory exists before creating archive parts.
+            string outputDirectory = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
             }
 
             var filesToProcess = new List<Tuple<string, string>>();
@@ -1030,99 +1275,144 @@ namespace G3FC
                 else if (Directory.Exists(path))
                 {
                     var baseDir = new DirectoryInfo(path);
-                    var allFiles = baseDir.GetFiles("*", SearchOption.AllDirectories);
-                    foreach (var file in allFiles)
+                    foreach (var file in baseDir.GetFiles("*", SearchOption.AllDirectories))
                     {
                         string relativePath = file.FullName.Substring(baseDir.FullName.Length).TrimStart(Path.DirectorySeparatorChar);
                         filesToProcess.Add(Tuple.Create(file.FullName, relativePath));
                     }
                 }
             }
-
-            Console.WriteLine("Starting archive creation...");
             G3FCWriter.CreateG3FCArchive(outputPath, filesToProcess, config);
         }
 
         static void HandleExtractCommand(string[] args)
         {
-            if (args.Length == 0)
-            {
-                Console.WriteLine("Error: Archive path is required for 'extract'.");
-                ShowHelp();
-                return;
-            }
-
+            if (args.Length == 0) { Console.WriteLine("Error: Archive path is required."); return; }
             string archivePath = args[0];
             string outputPath = null;
             string password = "";
 
             for (int i = 1; i < args.Length; i++)
             {
-                switch (args[i])
-                {
-                    case "-o":
-                    case "--output":
-                        outputPath = args[++i];
-                        break;
-                    case "-p":
-                    case "--password":
-                        password = args[++i];
-                        break;
-                }
+                if (args[i] == "-o" || args[i] == "--output") outputPath = args[++i];
+                if (args[i] == "-p" || args[i] == "--password") password = args[++i];
             }
 
-            if (string.IsNullOrEmpty(outputPath))
-            {
-                Console.Write("Enter destination directory: ");
-                outputPath = Console.ReadLine();
-            }
-
-            if (!Directory.Exists(outputPath))
-            {
-                try
-                {
-                    Directory.CreateDirectory(outputPath);
-                } catch {
-                    throw new Exception("Could not create output directory");
-                }
-            }
+            if (string.IsNullOrEmpty(outputPath)) { Console.Write("Enter destination directory: "); outputPath = Console.ReadLine(); }
+            Directory.CreateDirectory(outputPath);
 
             var header = G3FCHelpers.BytesToStruct<MainHeader>(G3FCHelpers.ReadBytes(new FileStream(archivePath, FileMode.Open, FileAccess.Read), 0, Constants.HeaderSize));
             if (header.EncryptionMode > 0 && string.IsNullOrEmpty(password))
             {
-                Console.Write("Password required. Enter password: ");
-                password = "";
-                while (true)
-                {
-                    var key = Console.ReadKey(true);
-                    if (key.Key == ConsoleKey.Enter) break;
-                    if (key.Key == ConsoleKey.Backspace && password.Length > 0)
-                    {
-                        password = password.Substring(0, password.Length - 1);
-                    }
-                    else if (!char.IsControl(key.KeyChar))
-                    {
-                        password += key.KeyChar;
-                    }
-                }
-                Console.WriteLine();
+                password = GetPasswordFromUser();
             }
 
-            Console.WriteLine("Reading archive index...");
             var fileIndex = G3FCReader.ReadFileIndex(archivePath, password);
-            Console.WriteLine($"Found {fileIndex.Count} file entries. Grouping and starting extraction...");
-
-            // Group entries by ChunkGroupId to reassemble chunked files
-            var fileGroups = fileIndex
-                .GroupBy(entry => new Guid((entry.ChunkGroupId != null && entry.ChunkGroupId.Length == 16) ? entry.ChunkGroupId : entry.UUID))
-                .Select(group => group.OrderBy(entry => entry.ChunkIndex).ToList())
-                .ToList();
-
+            var fileGroups = fileIndex.GroupBy(entry => new Guid((entry.ChunkGroupId != null && entry.ChunkGroupId.Length == 16) ? entry.ChunkGroupId : entry.UUID)).Select(group => group.OrderBy(entry => entry.ChunkIndex).ToList()).ToList();
             foreach (var chunkGroup in fileGroups)
             {
                 G3FCReader.ExtractFileFromChunks(archivePath, chunkGroup, outputPath, password);
             }
             Console.WriteLine("\nExtraction complete.");
+        }
+
+        static void HandleListCommand(string[] args)
+        {
+            if (args.Length == 0) { Console.WriteLine("Error: Archive path is required for 'list'."); return; }
+            string archivePath = args[0];
+            string password = "";
+            string unit = "KB";
+            bool details = false;
+
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (args[i] == "-p" || args[i] == "--password") password = args[++i];
+                if (args[i] == "--unit") unit = args[++i];
+                if (args[i] == "--details") details = true;
+            }
+
+            var header = G3FCHelpers.BytesToStruct<MainHeader>(G3FCHelpers.ReadBytes(new FileStream(archivePath, FileMode.Open, FileAccess.Read), 0, Constants.HeaderSize));
+            if (header.EncryptionMode > 0 && string.IsNullOrEmpty(password))
+            {
+                password = GetPasswordFromUser();
+            }
+
+            G3FCCommands.ListFilesInContainer(archivePath, password, unit, details);
+        }
+
+        static void HandleInfoCommand(string[] args)
+        {
+            if (args.Length < 2) { Console.WriteLine("Error: Archive path and output path are required for 'info'."); return; }
+            string archivePath = args[0];
+            string outputPath = null;
+            string password = "";
+
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (args[i] == "-o" || args[i] == "--output") outputPath = args[++i];
+                if (args[i] == "-p" || args[i] == "--password") password = args[++i];
+            }
+
+            if (string.IsNullOrEmpty(outputPath)) { Console.WriteLine("Error: Output path (-o) is required."); return; }
+
+            var header = G3FCHelpers.BytesToStruct<MainHeader>(G3FCHelpers.ReadBytes(new FileStream(archivePath, FileMode.Open, FileAccess.Read), 0, Constants.HeaderSize));
+            if (header.EncryptionMode > 0 && string.IsNullOrEmpty(password))
+            {
+                password = GetPasswordFromUser();
+            }
+
+            G3FCCommands.ExportInfo(archivePath, password, outputPath);
+        }
+
+        static void HandleFindCommand(string[] args)
+        {
+            if (args.Length < 2) { Console.WriteLine("Error: Archive path and search pattern are required for 'find'."); return; }
+            string archivePath = args[0];
+            string pattern = args[1];
+            string password = "";
+            string unit = "KB";
+            bool useRegex = false;
+
+            for (int i = 2; i < args.Length; i++)
+            {
+                if (args[i] == "-p" || args[i] == "--password") password = args[++i];
+                if (args[i] == "--unit") unit = args[++i];
+                if (args[i] == "--regex") useRegex = true;
+            }
+
+            var header = G3FCHelpers.BytesToStruct<MainHeader>(G3FCHelpers.ReadBytes(new FileStream(archivePath, FileMode.Open, FileAccess.Read), 0, Constants.HeaderSize));
+            if (header.EncryptionMode > 0 && string.IsNullOrEmpty(password))
+            {
+                password = GetPasswordFromUser();
+            }
+
+            G3FCCommands.FindFilesInContainer(archivePath, password, pattern, useRegex, unit);
+        }
+
+        static void HandleExtractSingleCommand(string[] args)
+        {
+            if (args.Length < 3) { Console.WriteLine("Error: Archive path, file path in archive, and output directory are required."); return; }
+            string archivePath = args[0];
+            string fileInArchive = args[1];
+            string outputPath = null;
+            string password = "";
+
+            for (int i = 2; i < args.Length; i++)
+            {
+                if (args[i] == "-o" || args[i] == "--output") outputPath = args[++i];
+                if (args[i] == "-p" || args[i] == "--password") password = args[++i];
+            }
+
+            if (string.IsNullOrEmpty(outputPath)) { Console.WriteLine("Error: Output path (-o) is required."); return; }
+            Directory.CreateDirectory(outputPath);
+
+            var header = G3FCHelpers.BytesToStruct<MainHeader>(G3FCHelpers.ReadBytes(new FileStream(archivePath, FileMode.Open, FileAccess.Read), 0, Constants.HeaderSize));
+            if (header.EncryptionMode > 0 && string.IsNullOrEmpty(password))
+            {
+                password = GetPasswordFromUser();
+            }
+
+            G3FCCommands.ExtractSingleFile(archivePath, password, fileInArchive, outputPath);
         }
 
         static long ParseSize(string sizeStr)
@@ -1134,13 +1424,8 @@ namespace G3FC
             }
             long size = long.Parse(match.Groups[1].Value);
             string unit = match.Groups[2].Value;
-            switch (unit)
-            {
-                case "MB": return size * 1024 * 1024;
-                case "GB": return size * 1024 * 1024 * 1024;
-                default: return 0;
-            }
+            return unit == "MB" ? size * 1024 * 1024 : size * 1024 * 1024 * 1024;
         }
     }
-#endregion
+    #endregion
 }
