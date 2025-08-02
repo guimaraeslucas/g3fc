@@ -6,7 +6,7 @@
 #
 # @author  Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>
 # @license GNU General Public License v2.0
-# @version 1.1.4
+# @version 1.1.3
 #
 # Copyright 2025, Lucas Guimarães - G3Pix Ltda <https://g3pix.com.br>
 #
@@ -319,7 +319,7 @@ class G3FCWriter:
         header.update({'FileIndexOffset': Constants.HEADER_SIZE, 'FileIndexLength': len(index_block_bytes), 'FECDataOffset': 0, 'FECDataLength': 0})
         current_offset = Constants.HEADER_SIZE + len(index_block_bytes)
         
-        header['HeaderChecksum'] = 0 # CORRECTION: Initialize HeaderChecksum before packing for FEC
+        header['HeaderChecksum'] = 0
         header_bytes_for_fec = struct.pack(Constants.HEADER_FORMAT, *[header[k] for k in get_header_keys()])
         metadata_fec_bytes = create_fec(header_bytes_for_fec + uncompressed_index_bytes, 10) if header['FECScheme'] == 1 else b''
         
@@ -403,7 +403,12 @@ class G3FCReader:
                         data_block = f.read(end - start)
                 
                 if self.header['EncryptionMode'] > 0: data_block = decrypt_aes_gcm(data_block, read_key)
-                if self.header['GlobalCompression'] == 1: data_block = zstd.ZstdDecompressor().decompress(data_block)
+                if self.header['GlobalCompression'] == 1: 
+                    # CORRECTION: Provide the uncompressed size for the entire block if possible.
+                    # This is a limitation, as we don't store the uncompressed size of the whole block.
+                    # We rely on the library's ability to stream or handle this.
+                    # If this fails, a format change would be needed.
+                    data_block = zstd.ZstdDecompressor().decompress(data_block)
                 data_blocks_cache[block_idx] = data_block
             
             data_block = data_blocks_cache[block_idx]
@@ -411,7 +416,8 @@ class G3FCReader:
 
         final_data = bytes(reassembled_stream)
         if self.header['GlobalCompression'] == 0 and first_chunk['compression'] == 1:
-            final_data = zstd.ZstdDecompressor().decompress(final_data)
+            # CORRECTION: Provide the known uncompressed size of the final file to the decompressor.
+            final_data = zstd.ZstdDecompressor().decompress(final_data, max_output_size=first_chunk['uncompressed_size'])
         
         if crc32_compute(final_data) != first_chunk['checksum']:
             raise ValueError(f"Checksum mismatch for {first_chunk['original_filename']}")
@@ -454,8 +460,7 @@ class G3FCCommands:
                     corrected_ticks = correct_timestamp_if_needed(entry.get('creation_time', 0))
                     dt = dotnet_ticks_to_datetime(corrected_ticks).astimezone()
                     permissions_val = entry.get('permissions', 0)
-                    # CORRECTION: Handle potential buggy permission value from old C# version
-                    if permissions_val == 666: permissions_val = 438 # 666 decimal is 1232 octal, 438 decimal is 666 octal
+                    if permissions_val == 666: permissions_val = 438
                     permissions_str = f"0o{permissions_val:o}"
                     line += f" {permissions_str:<12} {dt.strftime('%Y-%m-%d %H:%M:%S'):<22} {entry.get('checksum', 0):08X}"
                 print(line)
@@ -602,7 +607,6 @@ def main():
 
     try:
         if args.command in ["create", "c"]:
-            # CORRECTION: Ensure output directory exists before creating archive parts.
             output_dir = os.path.dirname(args.output)
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
