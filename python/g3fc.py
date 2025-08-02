@@ -55,6 +55,7 @@ import argparse
 import re
 import json
 import getpass
+import io
 from datetime import datetime, timezone
 
 # Import installed dependencies
@@ -370,7 +371,11 @@ class G3FCReader:
             index_block_bytes = decrypt_aes_gcm(index_block_bytes, read_key)
         
         if self.header['FileIndexCompression'] == 1:
-            index_block_bytes = zstd.ZstdDecompressor().decompress(index_block_bytes)
+            # Correction to handle Zstandard frames that may not contain the content size,
+            # ensuring compatibility with archives created by other G3FC implementations (e.g., Rust).
+            dctx = zstd.ZstdDecompressor()
+            reader = dctx.stream_reader(io.BytesIO(index_block_bytes))
+            index_block_bytes = reader.read()
         
         return deserialize_index(index_block_bytes)
 
@@ -404,11 +409,10 @@ class G3FCReader:
                 
                 if self.header['EncryptionMode'] > 0: data_block = decrypt_aes_gcm(data_block, read_key)
                 if self.header['GlobalCompression'] == 1: 
-                    # CORRECTION: Provide the uncompressed size for the entire block if possible.
-                    # This is a limitation, as we don't store the uncompressed size of the whole block.
-                    # We rely on the library's ability to stream or handle this.
-                    # If this fails, a format change would be needed.
-                    data_block = zstd.ZstdDecompressor().decompress(data_block)
+                    # Correction to handle Zstandard frames that may not contain the content size.
+                    dctx = zstd.ZstdDecompressor()
+                    reader = dctx.stream_reader(io.BytesIO(data_block))
+                    data_block = reader.read()
                 data_blocks_cache[block_idx] = data_block
             
             data_block = data_blocks_cache[block_idx]
@@ -416,7 +420,8 @@ class G3FCReader:
 
         final_data = bytes(reassembled_stream)
         if self.header['GlobalCompression'] == 0 and first_chunk['compression'] == 1:
-            # CORRECTION: Provide the known uncompressed size of the final file to the decompressor.
+            # CORRECTION: Provide the known uncompressed size to the decompressor.
+            # This fixes compatibility with archives created by the Rust version.
             final_data = zstd.ZstdDecompressor().decompress(final_data, max_output_size=first_chunk['uncompressed_size'])
         
         if crc32_compute(final_data) != first_chunk['checksum']:
@@ -651,7 +656,7 @@ def main():
 
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}", file=sys.stderr)
-        # import traceback; traceback.print_exc() # Uncomment for debugging
+        import traceback; traceback.print_exc() # Uncomment for debugging
         sys.exit(1)
 
 if __name__ == "__main__":
