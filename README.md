@@ -19,7 +19,8 @@
   <a href="#-performance-benchmarks">Benchmarks</a> •
   <a href="#-getting-started">Get Started</a> •
   <a href="#-implementations">Implementations</a> •
-  <a href="#-technical-specification">Specification</a>
+  <a href="#-technical-specification">Specification</a> •
+  <a href="https://github.com/guimaraeslucas/g3fc/wiki">Wiki</a>
 </p>
 
 ---
