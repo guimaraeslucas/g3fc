@@ -11,6 +11,7 @@
 <p align="center">
     <a href="https://github.com/guimaraeslucas/g3fc/releases"><img src="https://img.shields.io/github/v/release/guimaraeslucas/g3fc?style=for-the-badge&label=Latest%20Release" alt="Latest Release"></a>
     <a href="https://github.com/guimaraeslucas/g3fc/blob/main/LICENSE"><img src="https://img.shields.io/github/license/guimaraeslucas/g3fc?style=for-the-badge&label=License" alt="License"></a>
+  <br>
     <a href="https://snapcraft.io/g3fc"><img alt="g3fc" src="https://snapcraft.io/g3fc/badge.svg" /></a>
 </p>
 
