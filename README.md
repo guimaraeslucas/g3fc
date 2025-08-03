@@ -94,6 +94,9 @@ G3FC is designed for broad compatibility. Explore our official open-source libra
 * **[C# / .NET](https://github.com/guimaraeslucas/g3fc/tree/main/csharp)**: A fully-featured .NET CLI perfect for integration into Windows and enterprise applications.
 * **[Python](https://github.com/guimaraeslucas/g3fc/tree/main/python)**: A flexible Python CLI using native bindings for incredible speed, perfect for scripting and data science.
 
+* [![Get it from the Snap Store](https://snapcraft.io/en/dark/install.svg)](https://snapcraft.io/g3fc)
+
+
 ## 📄 Technical Specification
 
 The G3FC format is built on an open, detailed specification to ensure cross-platform compatibility and encourage community implementation.
