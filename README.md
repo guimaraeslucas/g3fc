@@ -95,7 +95,7 @@ G3FC is designed for broad compatibility. Explore our official open-source libra
 * **[Go (Golang)](https://github.com/guimaraeslucas/g3fc/tree/main/golang)**: High-performance, cross-platform CLI that's incredibly easy to distribute.
 * **[C# / .NET](https://github.com/guimaraeslucas/g3fc/tree/main/csharp)**: A fully-featured .NET CLI perfect for integration into Windows and enterprise applications.
 * **[Python](https://github.com/guimaraeslucas/g3fc/tree/main/python)**: A flexible Python CLI using native bindings for incredible speed, perfect for scripting and data science.
-* **[Get it from the Snap Store]**(https://snapcraft.io/g3fc)
+* **[Get it from the Snap Store](https://snapcraft.io/g3fc)**:  Please note that for security, the Snap version is restricted and can primarily access files within your home directory and on removable media. It is highly recommended to use absolute paths (e.g., /home/user/documents) for your files to ensure they are correctly located. For unrestricted access to the entire filesystem, please use the binaries available directly from the project's GitHub releases page
 
 
 ## 📄 Technical Specification
