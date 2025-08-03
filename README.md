@@ -11,6 +11,7 @@
 <p align="center">
     <a href="https://github.com/guimaraeslucas/g3fc/releases"><img src="https://img.shields.io/github/v/release/guimaraeslucas/g3fc?style=for-the-badge&label=Latest%20Release" alt="Latest Release"></a>
     <a href="https://github.com/guimaraeslucas/g3fc/blob/main/LICENSE"><img src="https://img.shields.io/github/license/guimaraeslucas/g3fc?style=for-the-badge&label=License" alt="License"></a>
+    <a href="https://snapcraft.io/g3fc"><img alt="g3fc" src="https://snapcraft.io/g3fc/badge.svg" /></a>
 </p>
 
 <p align="center">
@@ -93,8 +94,7 @@ G3FC is designed for broad compatibility. Explore our official open-source libra
 * **[Go (Golang)](https://github.com/guimaraeslucas/g3fc/tree/main/golang)**: High-performance, cross-platform CLI that's incredibly easy to distribute.
 * **[C# / .NET](https://github.com/guimaraeslucas/g3fc/tree/main/csharp)**: A fully-featured .NET CLI perfect for integration into Windows and enterprise applications.
 * **[Python](https://github.com/guimaraeslucas/g3fc/tree/main/python)**: A flexible Python CLI using native bindings for incredible speed, perfect for scripting and data science.
-
-* [![Get it from the Snap Store](https://snapcraft.io/en/dark/install.svg)](https://snapcraft.io/g3fc)
+* **[Get it from the Snap Store]**(https://snapcraft.io/g3fc)
 
 
 ## 📄 Technical Specification
