@@ -1,8 +1,3 @@
-Of course. I have edited the Markdown to include the new section directing users to the Wiki, while also enhancing the overall tone to be more engaging for developers.
-
-Here is the raw Markdown content for you to copy.
-
-```markdown
 <p align="center">
   <img src="https://g3pix.com.br/g3fc/g3fc.jpeg" alt="G3FC Logo" width="275"/>
 </p>
@@ -123,4 +118,4 @@ This project is maintained by G3Pix.
 * **Website**: [g3pix.com.br/g3fc](https://g3pix.com.br/g3fc/)
 
 ---
-```
+
