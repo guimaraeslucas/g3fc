@@ -1,9 +1,15 @@
 [package]
-name = "g3fc_rust"
-version = "1.0.10"
+name = "g3fc"
+version = "1.1.3"
 edition = "2024"
-description = "A Rust implementation of the G3FC (G3 File Container) archiver format."
+description = "A Rust implementation of the G3FC (G3 File Container) format."
 license = "GPL-2.0-or-later"
+authors = ["Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>"]
+readme = "README.md"
+homepage = "https://g3pix.com.br/g3fc/"
+repository = "https://github.com/guimaraeslucas/g3fc/tree/main/rust"
+keywords = ["zlib", "container", "compression", "storage"]
+categories = ["command-line-utilities", "compression", "filesystem"]
 
 [dependencies]
 # Core Utilities
