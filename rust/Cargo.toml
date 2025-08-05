@@ -8,7 +8,7 @@ authors = ["Lucas Guimarães - G3Pix <https://github.com/guimaraeslucas/>"]
 readme = "README.md"
 homepage = "https://g3pix.com.br/g3fc/"
 repository = "https://github.com/guimaraeslucas/g3fc/tree/main/rust"
-keywords = ["zlib", "container", "compression", "storage"]
+keywords = ["zstd", "container", "compression", "storage"]
 categories = ["command-line-utilities", "compression", "filesystem"]
 
 [dependencies]
